@@ -72,7 +72,7 @@ function makeMats() {
   const woodMap = canvasTex(64, 3, (ctx, s) => {
     for (let y = 0; y < s; y++) {
       const tone = 118 + ((y * 3) % 28);
-      ctx.fillStyle = "rgb(" + tone + "," + (tone - 38) + "," + (tone - 70) + ")"; by
+      ctx.fillStyle = "rgb(" + tone + "," + (tone - 38) + "," + (tone - 70) + ")";
       ctx.fillRect(0, y, s, 1);
     }
     ctx.fillStyle = "rgba(60,30,12,0.35)";
