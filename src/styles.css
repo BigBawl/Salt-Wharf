@@ -1,0 +1,1117 @@
+@import url("https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500;1,600;1,700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Cormorant Garamond", ui-serif, Georgia, "Times New Roman", serif;
+  --font-sans: "Barlow", ui-sans-serif, system-ui, sans-serif;
+
+  --color-bg: #fff8ee;
+  --color-bg-deep: #dceef6;
+  --color-fog: #7a7368;
+  --color-surface: #2a2620;
+  --color-surface-2: #ebe3d4;
+  --color-ink: #2a2620;
+  --color-muted: #6a645c;
+  --color-primary: #1e9e90;
+  --color-primary-fg: #fffdf8;
+  --color-sand: #f0d7a0;
+  --color-wood: #e0b07a;
+  --color-wood-deep: #c99258;
+  --color-cell: #f6ead6;
+  --color-cell-ink: #3a322c;
+  --color-energy: #2fbe62;
+  --color-pearl: #d4a017;
+  --color-danger: #c23b4c;
+  --color-ring: color-mix(in oklab, #1e9e90 28%, transparent);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 22px;
+
+  --shadow-panel: 0 14px 32px color-mix(in oklab, #2a6a80 16%, transparent);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100dvh;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-bg-deep);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+}
+
+@utility tap-scale {
+  transition: transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+  &:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+}
+
+.board-stage {
+  perspective: none;
+  padding-bottom: 0;
+  min-height: 0;
+}
+
+.board-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  transform: none;
+  transform-origin: 50% 100%;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--color-sand) 70%, white) 0%,
+      color-mix(in oklab, var(--color-wood) 78%, var(--color-sand)) 100%
+    );
+  border-radius: calc(var(--radius-lg) + 8px);
+  padding: 6px;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, white 55%, transparent),
+    inset 0 0 0 4px color-mix(in oklab, var(--color-wood) 35%, transparent),
+    0 18px 28px color-mix(in oklab, #6a4a28 28%, transparent),
+    0 4px 0 color-mix(in oklab, var(--color-wood-deep) 55%, transparent);
+  transition:
+    background 400ms ease,
+    box-shadow 400ms ease;
+}
+
+.board-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.board-cell {
+  min-height: 0;
+}
+
+@media (min-width: 640px) {
+  .board-frame {
+    padding: 10px;
+  }
+  .board-grid {
+    gap: 6px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .board-stage {
+    perspective: 980px;
+    perspective-origin: 50% 8%;
+    padding-bottom: 10px;
+  }
+  .board-frame {
+    transform: rotateX(8deg);
+    transform-style: preserve-3d;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .board-frame {
+    transform: none;
+  }
+  .board-cell {
+    transform: none;
+  }
+}
+
+.energy-empty {
+  animation: energy-pulse 1s ease-in-out infinite;
+  box-shadow: inset 0 0 0 2px var(--color-energy);
+}
+
+@keyframes energy-pulse {
+  50% {
+    box-shadow: inset 0 0 0 2px transparent;
+  }
+}
+
+.board-frame.look-painted {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--color-sand) 62%, white) 0%,
+      color-mix(in oklab, var(--color-wood) 72%, var(--color-sand)) 100%
+    );
+}
+
+.board-frame.look-lanterns {
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 28%, transparent),
+    0 0 28px color-mix(in oklab, var(--color-sand) 28%, transparent),
+    var(--shadow-panel);
+}
+
+.board-frame.look-lights {
+  padding-top: 16px;
+}
+
+.board-frame.dock-dawn {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-sand) 70%, white) 0%,
+    color-mix(in oklab, var(--color-wood) 80%, var(--color-sand)) 100%
+  );
+}
+.board-frame.dock-dawn .board-cell {
+  background: color-mix(in oklab, var(--color-sand) 38%, white);
+}
+
+.board-frame.dock-fog {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-fog) 55%, white) 0%,
+    color-mix(in oklab, var(--color-wood-deep) 70%, var(--color-fog)) 100%
+  );
+}
+.board-frame.dock-fog .board-cell {
+  background: color-mix(in oklab, var(--color-fog) 42%, var(--color-cell));
+}
+.board-frame.dock-fog::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, white 22%, transparent),
+    transparent 55%
+  );
+}
+
+.board-frame.dock-pine {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-sand) 58%, white) 0%,
+    color-mix(in oklab, var(--color-wood) 68%, var(--color-sand)) 100%
+  );
+}
+.board-frame.dock-pine .board-cell {
+  background: color-mix(in oklab, var(--color-sand) 48%, white);
+}
+
+.board-frame.dock-gold {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-energy) 38%, var(--color-wood)) 0%,
+    var(--color-wood-deep) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--color-energy) 35%, transparent),
+    0 0 24px color-mix(in oklab, var(--color-energy) 18%, transparent),
+    var(--shadow-panel);
+}
+.board-frame.dock-gold .board-cell {
+  background: color-mix(in oklab, var(--color-energy) 16%, var(--color-cell));
+}
+
+.board-frame.dock-dusk {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-primary) 42%, var(--color-wood)) 0%,
+    color-mix(in oklab, var(--color-bg-deep) 80%, var(--color-wood-deep)) 100%
+  );
+}
+.board-frame.dock-dusk .board-cell {
+  background: color-mix(in oklab, var(--color-primary) 22%, var(--color-cell));
+}
+
+.board-frame.dock-night {
+  background: linear-gradient(180deg, var(--color-bg) 0%, var(--color-bg-deep) 100%);
+}
+.board-frame.dock-night .board-cell {
+  background: color-mix(in oklab, var(--color-bg) 70%, var(--color-cell));
+  box-shadow:
+    inset 0 1px 8px color-mix(in oklab, var(--color-energy) 16%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, white 10%, transparent);
+}
+
+.board-frame.dock-fest {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-sand) 50%, var(--color-wood)) 0%,
+    var(--color-wood-deep) 100%
+  );
+  padding-top: 16px;
+}
+.board-frame.dock-fest .board-cell {
+  background: color-mix(in oklab, var(--color-sand) 28%, var(--color-cell));
+}
+
+.board-frame.dock-rain {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-fog) 40%, var(--color-wood)) 0%,
+    var(--color-wood-deep) 100%
+  );
+}
+.board-frame.dock-rain .board-cell {
+  background: color-mix(in oklab, var(--color-fog) 28%, var(--color-cell));
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 40%, transparent),
+    inset 0 -1px 2px color-mix(in oklab, var(--color-bg-deep) 30%, transparent);
+}
+
+.board-frame.dock-summer {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-sand) 80%, white) 0%,
+    color-mix(in oklab, var(--color-wood) 55%, var(--color-sand)) 100%
+  );
+}
+.board-frame.dock-summer .board-cell {
+  background: color-mix(in oklab, var(--color-sand) 55%, white);
+}
+
+.board-frame.dock-frost {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-fog) 70%, white) 0%,
+    color-mix(in oklab, var(--color-wood-deep) 60%, var(--color-fog)) 100%
+  );
+}
+.board-frame.dock-frost .board-cell {
+  background: color-mix(in oklab, white 35%, var(--color-cell));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, white 28%, transparent);
+}
+
+.board-frame.dock-moon {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-pearl) 22%, var(--color-bg)) 0%,
+    var(--color-bg-deep) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--color-pearl) 28%, transparent),
+    0 0 22px color-mix(in oklab, var(--color-pearl) 12%, transparent),
+    var(--shadow-panel);
+}
+.board-frame.dock-moon .board-cell {
+  background: color-mix(in oklab, var(--color-pearl) 14%, var(--color-cell));
+}
+
+.cove-dawn img {
+  filter: saturate(1.08) hue-rotate(-8deg) brightness(1.06);
+}
+.cove-fog img {
+  filter: saturate(0.72) contrast(0.92) brightness(1.08);
+}
+.cove-pine img {
+  filter: saturate(1.12) hue-rotate(12deg);
+}
+.cove-gold img {
+  filter: saturate(1.2) sepia(0.18) brightness(1.05);
+}
+.cove-dusk img {
+  filter: saturate(1.05) hue-rotate(18deg) brightness(0.92);
+}
+.cove-night img {
+  filter: brightness(0.72) saturate(0.85) contrast(1.08);
+}
+.cove-fest img {
+  filter: saturate(1.25) brightness(1.04);
+}
+.cove-rain img {
+  filter: saturate(0.8) contrast(1.08) brightness(0.9);
+}
+.cove-summer img {
+  filter: saturate(1.18) brightness(1.1);
+}
+.cove-frost img {
+  filter: saturate(0.55) brightness(1.12) contrast(0.95);
+}
+.cove-moon img {
+  filter: saturate(0.7) brightness(0.82) hue-rotate(200deg);
+}
+
+.board-cell {
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-cell) 55%, white) 0%,
+    var(--color-cell) 100%
+  );
+  border-radius: var(--radius-sm);
+  transform: translateZ(10px);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, white 70%, transparent),
+    inset 0 -1px 2px color-mix(in oklab, var(--color-wood) 28%, transparent),
+    0 4px 8px color-mix(in oklab, #6a4a28 20%, transparent);
+  transition:
+    background 400ms ease,
+    box-shadow 400ms ease;
+}
+
+.board-frame.look-painted .board-cell {
+  background: color-mix(in oklab, var(--color-sand) 42%, white);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, white 46%, transparent),
+    inset 0 -1px 2px color-mix(in oklab, var(--color-wood-deep) 16%, transparent);
+}
+
+.board-frame.look-lanterns .board-cell {
+  box-shadow:
+    inset 0 1px 8px color-mix(in oklab, var(--color-sand) 38%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, white 18%, transparent);
+}
+
+.board-frame.look-lanterns .board-cell.is-empty {
+  background:
+    radial-gradient(
+      120% 80% at 50% 20%,
+      color-mix(in oklab, var(--color-energy) 18%, transparent),
+      color-mix(in oklab, var(--color-cell) 88%, var(--color-wood-deep))
+    );
+}
+
+.board-bunting {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  padding: 0 10px 6px;
+  pointer-events: none;
+}
+
+.board-bunting::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 4px;
+  height: 1px;
+  background: color-mix(in oklab, var(--color-wood-deep) 50%, transparent);
+}
+
+.board-bulb {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--color-sand);
+  box-shadow: 0 0 10px 2px color-mix(in oklab, var(--color-sand) 80%, white);
+}
+
+.board-bulb:nth-child(odd) {
+  background: var(--color-pearl);
+  box-shadow: 0 0 8px color-mix(in oklab, var(--color-pearl) 70%, var(--color-sand));
+}
+
+.board-bulb:nth-child(3n) {
+  background: var(--color-energy);
+  box-shadow: 0 0 8px color-mix(in oklab, var(--color-energy) 70%, transparent);
+}
+
+.dock-lantern {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 35% 30%, var(--color-pearl), var(--color-sand) 70%);
+  box-shadow: 0 0 16px 5px color-mix(in oklab, var(--color-sand) 72%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.dock-lantern-tl {
+  top: 5px;
+  left: 5px;
+}
+.dock-lantern-tr {
+  top: 5px;
+  right: 5px;
+}
+.dock-lantern-bl {
+  bottom: 5px;
+  left: 5px;
+}
+.dock-lantern-br {
+  bottom: 5px;
+  right: 5px;
+}
+
+.lucky-chip {
+  position: absolute;
+  top: -10px;
+  right: 14px;
+  z-index: 3;
+}
+
+.item-pop {
+  animation: item-pop 280ms cubic-bezier(0.34, 1.36, 0.64, 1) both;
+}
+
+.fx-float {
+  animation: fx-float 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.fx-spark {
+  animation: fx-spark 560ms ease-out both;
+}
+
+.shake-x {
+  animation: shake-x 280ms ease-in-out;
+}
+
+.stagger-in > * {
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(4px);
+  animation: fade-up 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.stagger-in > *:nth-child(1) {
+  animation-delay: 40ms;
+}
+.stagger-in > *:nth-child(2) {
+  animation-delay: 90ms;
+}
+.stagger-in > *:nth-child(3) {
+  animation-delay: 140ms;
+}
+.stagger-in > *:nth-child(4) {
+  animation-delay: 190ms;
+}
+.stagger-in > *:nth-child(5) {
+  animation-delay: 240ms;
+}
+
+@keyframes item-pop {
+  0% {
+    transform: scale(0.84);
+  }
+  58% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fx-float {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) translateY(6px) scale(0.9);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) translateY(-28px) scale(1);
+  }
+}
+
+@keyframes fx-spark {
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx), var(--dy)) scale(0.2);
+  }
+}
+
+@keyframes shake-x {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-5px);
+  }
+  75% {
+    transform: translateX(5px);
+  }
+}
+
+@keyframes fade-up {
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-primary) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+.bubble-chip {
+  box-shadow: 0 0 10px color-mix(in oklab, var(--color-pearl) 55%, transparent);
+  animation:
+    item-pop 400ms cubic-bezier(0.34, 1.36, 0.64, 1) both,
+    bubble-bob 2.6s ease-in-out infinite;
+}
+
+@keyframes bubble-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.feeds-crate {
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--color-energy) 75%, transparent);
+}
+
+body.dragging-store .store-slot {
+  outline: 2px solid var(--color-energy);
+  outline-offset: 1px;
+}
+
+.sell-well {
+  color: var(--color-pearl);
+  transition:
+    box-shadow 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+body.dragging-piece .sell-well {
+  background: color-mix(in oklab, var(--color-pearl) 22%, var(--color-bg));
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-pearl) 70%, transparent);
+  transform: scale(1.06);
+}
+
+.merge-burst {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  --spark: var(--color-energy);
+}
+
+.merge-burst[data-chain="tide"] {
+  --spark: var(--color-energy);
+}
+.merge-burst[data-chain="hearth"] {
+  --spark: var(--color-sand);
+}
+.merge-burst[data-chain="craft"] {
+  --spark: var(--color-fog);
+}
+.merge-burst[data-chain="net"] {
+  --spark: var(--color-primary);
+}
+.merge-burst[data-chain="bloom"] {
+  --spark: color-mix(in oklab, var(--color-sand) 70%, white);
+}
+.merge-burst[data-chain="wreck"] {
+  --spark: var(--color-wood);
+}
+.merge-burst[data-chain="keep"] {
+  --spark: var(--color-energy);
+}
+.merge-burst[data-chain="hammer"],
+.merge-burst[data-chain="paint"],
+.merge-burst[data-chain="lamp"],
+.merge-burst[data-chain="special"] {
+  --spark: var(--color-sand);
+}
+
+.merge-flash {
+  position: absolute;
+  inset: 8%;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--spark) 55%, white);
+  opacity: 0;
+  animation: merge-flash 420ms ease-out both;
+}
+
+.merge-ring {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  border: 2px solid color-mix(in oklab, var(--spark) 80%, white);
+  animation: merge-ring 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.merge-mote {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px;
+  border-radius: 50%;
+  background: var(--spark);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--spark) 70%, white);
+  animation: merge-mote 580ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform: rotate(var(--a)) translateY(-6px);
+}
+
+.merge-burst.is-capstone .merge-mote {
+  width: 8px;
+  height: 8px;
+  margin: -4px;
+  animation-duration: 720ms;
+}
+.merge-burst.is-capstone .merge-ring {
+  border-width: 3px;
+}
+
+.board-thump {
+  animation: board-thump 280ms ease-out;
+}
+
+@keyframes merge-flash {
+  0% {
+    opacity: 0.85;
+    transform: scale(0.4);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
+@keyframes merge-ring {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.55);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.55);
+  }
+}
+
+@keyframes merge-mote {
+  0% {
+    opacity: 1;
+    transform: rotate(var(--a)) translateY(-4px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateY(-22px) scale(0.4);
+  }
+}
+
+/* Uses the independent `scale` property, not `transform`. `.board-frame` carries
+   `transform: rotateX(8deg)` at >=1024px; animating `transform` here would drop the
+   tilt for the 280ms the thump runs and snap the board flat on every merge. */
+@keyframes board-thump {
+  0% {
+    scale: 1;
+  }
+  40% {
+    scale: 0.985;
+  }
+  100% {
+    scale: 1;
+  }
+}
+
+.board-cell.is-locked {
+  background:
+    repeating-linear-gradient(
+      -32deg,
+      color-mix(in oklab, var(--color-sand) 75%, white) 0 6px,
+      color-mix(in oklab, var(--color-wood) 35%, white) 6px 12px
+    );
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-primary) 30%, transparent);
+  cursor: default;
+}
+
+.cove-map-wrap {
+  position: relative;
+  overflow: hidden;
+  min-height: 240px;
+  background: var(--color-bg-deep);
+  isolation: isolate;
+}
+
+.cove-map-caption {
+  position: relative;
+  z-index: 3;
+  padding: 0.7rem 0.9rem 0.15rem;
+  background: var(--color-bg);
+}
+
+.cove-map-wrap img.town-layer,
+.cove-map-wrap > img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.town-layer {
+  position: relative;
+  z-index: 0;
+}
+
+.town-layer.town-lit {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: top center;
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity 700ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.town-pin {
+  position: absolute;
+  z-index: 2;
+  width: 3.2rem;
+  height: 3.2rem;
+  margin-left: -1.6rem;
+  margin-top: -1.6rem;
+  padding: 0;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 2px solid color-mix(in oklab, var(--color-fog) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-bg-deep) 55%, transparent);
+  background: var(--color-bg-deep);
+}
+
+.town-pin img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.town-pin.is-now {
+  width: 3.7rem;
+  height: 3.7rem;
+  margin-left: -1.85rem;
+  margin-top: -1.85rem;
+  border-color: var(--color-energy);
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--color-bg-deep) 50%, transparent),
+    0 0 16px color-mix(in oklab, var(--color-energy) 45%, transparent);
+}
+
+.town-pin.is-done {
+  border-color: var(--color-primary);
+}
+
+.town-pin.is-later {
+  opacity: 0.55;
+  filter: grayscale(0.35);
+}
+
+.town-pin.is-focus {
+  outline: 2px solid var(--color-surface);
+  outline-offset: 2px;
+}
+
+.site-shot {
+  position: relative;
+  height: 10.5rem;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-deep);
+}
+
+.cove-hotspot {
+  position: absolute;
+  width: 2.4rem;
+  height: 2.4rem;
+  margin-left: -1.2rem;
+  margin-top: -1.2rem;
+  border-radius: 999px;
+  border: 2px solid color-mix(in oklab, var(--color-primary) 70%, transparent);
+  background: color-mix(in oklab, var(--color-bg-deep) 55%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-bg-deep) 40%, transparent);
+}
+
+.cove-hotspot.is-now {
+  border-color: var(--color-energy);
+  background: color-mix(in oklab, var(--color-energy) 35%, transparent);
+  box-shadow: 0 0 16px color-mix(in oklab, var(--color-energy) 45%, transparent);
+}
+
+.cove-hotspot.is-done {
+  border-color: var(--color-primary);
+  background: color-mix(in oklab, var(--color-primary) 40%, transparent);
+}
+
+.cove-hotspot.is-later {
+  opacity: 0.45;
+  border-color: var(--color-fog);
+}
+
+.cove-hotspot.is-focus {
+  outline: 2px solid var(--color-surface);
+  outline-offset: 2px;
+}
+
+.harbor-stage {
+  position: relative;
+  height: clamp(10rem, 22dvh, 13.75rem);
+  overflow: hidden;
+  background: #7eb8c9;
+  isolation: isolate;
+}
+
+.harbor-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.harbor-hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 16;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: max(0.45rem, env(safe-area-inset-top)) 0.55rem 0.4rem;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    color-mix(in oklab, var(--color-bg-deep) 62%, transparent),
+    transparent 92%
+  );
+}
+
+.harbor-hud > * {
+  pointer-events: auto;
+}
+
+.work-chip {
+  position: absolute;
+  top: calc(max(0.45rem, env(safe-area-inset-top)) + 3.3rem);
+  left: 0.45rem;
+  z-index: 12;
+  display: flex;
+  max-width: min(17rem, 70%);
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.4rem 0.35rem 0.55rem;
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-bg) 92%, transparent);
+  box-shadow: var(--shadow-panel);
+}
+
+.work-chip-main {
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+}
+
+.toast-float {
+  position: absolute;
+  top: calc(max(0.45rem, env(safe-area-inset-top)) + 3.25rem);
+  right: 0.5rem;
+  left: auto;
+  z-index: 18;
+  width: min(14.5rem, 42%);
+  pointer-events: none;
+}
+
+.order-dock {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.35rem 0.45rem 0.2rem;
+  background: var(--color-bg-deep);
+}
+
+.order-dock > * {
+  pointer-events: auto;
+}
+
+.order-dock-row {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding-bottom: 0.1rem;
+  scrollbar-width: none;
+}
+
+.order-dock-row::-webkit-scrollbar {
+  display: none;
+}
+
+.order-chip {
+  display: flex;
+  min-width: 10.25rem;
+  flex: 1;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  padding: 0.35rem 0.4rem;
+  box-shadow: var(--shadow-panel);
+}
+
+.order-chip-wide {
+  min-width: 0;
+  width: 100%;
+}
+
+.order-chip.is-ready {
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-energy) 55%, transparent),
+    var(--shadow-panel);
+}
+
+@media (min-width: 1024px) {
+  .harbor-stage {
+    height: clamp(16rem, 36dvh, 22rem);
+  }
+}
+
+.harbor-enter {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.45rem;
+  z-index: 14;
+  height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-bg) 92%, transparent);
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-panel);
+}
+
+.town-walk {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #6a9aaa;
+}
+
+.town-walk canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.town-walk-close {
+  position: absolute;
+  top: max(0.6rem, env(safe-area-inset-top));
+  right: 0.6rem;
+  z-index: 20;
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border-radius: var(--radius-lg);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-panel);
+}
+
+.town-walk-hint {
+  position: absolute;
+  top: max(0.75rem, env(safe-area-inset-top));
+  left: 50%;
+  z-index: 18;
+  max-width: 72%;
+  transform: translateX(-50%);
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-bg) 88%, transparent);
+  color: var(--color-ink);
+  font-size: 11px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.town-stick {
+  position: absolute;
+  left: 1rem;
+  bottom: max(9.5rem, calc(env(safe-area-inset-bottom) + 9rem));
+  z-index: 20;
+  width: 5.5rem;
+  height: 5.5rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-bg) 55%, transparent);
+  box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--color-ink) 12%, transparent);
+  touch-action: none;
+}
+
+.town-stick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.2rem;
+  height: 2.2rem;
+  margin: -1.1rem 0 0 -1.1rem;
+  border-radius: 999px;
+  background: var(--color-bg);
+  box-shadow: var(--shadow-panel);
+}
+
+.build-card {
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: max(0.5rem, env(safe-area-inset-bottom));
+  z-index: 22;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 0.85rem;
+  border-radius: calc(var(--radius-lg) + 4px);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-panel);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item-pop,
+  .fx-float,
+  .fx-spark,
+  .shake-x,
+  .stagger-in > *,
+  .need-pip,
+  .merge-flash,
+  .merge-ring,
+  .merge-mote,
+  .board-thump,
+  .bubble-chip {
+    animation: none !important;
+  }
+}
