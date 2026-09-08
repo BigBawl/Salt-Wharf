@@ -57,7 +57,7 @@ function makeMats() {
     ctx.fillStyle = "#4f8a3a";
     ctx.fillRect(0, 0, s, s);
     for (let i = 0; i < 900; i++) {
-      ctx.fillStyle = `rgb(\( {40 + (i % 24)}, \){90 + (i % 50)},${32 + (i % 16)})`;
+      ctx.fillStyle = "rgb(" + (40 + (i % 24)) + "," + (90 + (i % 50)) + "," + (32 + (i % 16)) + ")";
       ctx.fillRect((i * 13) % s, (i * 29) % s, 2 + (i % 3), 2);
     }
   });
@@ -72,7 +72,7 @@ function makeMats() {
   const woodMap = canvasTex(64, 3, (ctx, s) => {
     for (let y = 0; y < s; y++) {
       const tone = 118 + ((y * 3) % 28);
-      ctx.fillStyle = `rgb(\( {tone}, \){tone - 38},${tone - 70})`;
+      ctx.fillStyle = "rgb(" + tone + "," + (tone - 38) + "," + (tone - 70) + ")"; by
       ctx.fillRect(0, y, s, 1);
     }
     ctx.fillStyle = "rgba(60,30,12,0.35)";
@@ -200,7 +200,7 @@ function Pier({ mats, restored }: { mats: Mats; restored: boolean }) {
       </instancedMesh>
       {[0, 3, 6, 9, 12].map((z) =>
         [0.5, 2.55].map((x) => (
-          <mesh key={`\( {x}- \){z}`} position={[x, -0.55, 1.4 + z * 0.7]} castShadow>
+          <mesh key={x + "-" + z} position={[x, -0.55, 1.4 + z * 0.7]} castShadow>
             <cylinderGeometry args={[0.09, 0.12, 1.4, 6]} />
             <primitive object={mats.woodDark} attach="material" />
           </mesh>
