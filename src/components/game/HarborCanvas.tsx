@@ -57,7 +57,7 @@ function makeMats() {
     ctx.fillStyle = "#4f8a3a";
     ctx.fillRect(0, 0, s, s);
     for (let i = 0; i < 900; i++) {
-      ctx.fillStyle = "rgb(" + (40 + (i % 24)) + "," + (90 + (i % 50)) + "," + (32 + (i % 16)) + ")";
+      ctx.fillStyle = "rgb(" + tone + "," + (tone - 38) + "," + (tone - 70) + ")";
       ctx.fillRect((i * 13) % s, (i * 29) % s, 2 + (i % 3), 2);
     }
   });
