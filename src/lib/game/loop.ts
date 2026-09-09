@@ -206,7 +206,7 @@ export const COVE_NODES: CoveNode[] = [
 ];
 
 export function siteArt(id: string, restored: boolean): string {
-  return asset(`/village/sites/\( {id}- \){restored ? "restored" : "ruined"}.jpg`);
+  return asset(`/village/sites/${id}-${restored ? "restored" : "ruined"}.jpg`);
 }
 
 export function orderWindow(unlocked: readonly PlayChain[]): PlayChain[] {
