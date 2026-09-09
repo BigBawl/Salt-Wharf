@@ -9,5 +9,5 @@ export function cn(...inputs: ClassValue[]) {
 export function asset(path: string) {
   const env = (import.meta as { env?: { BASE_URL?: string } }).env;
   const base = env?.BASE_URL ?? "/";
-  return `\( {base} \){path.replace(/^\//, "")}`;
+  return `${base}${path.replace(/^\//, "")}`;
 }
