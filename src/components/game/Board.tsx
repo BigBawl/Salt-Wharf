@@ -302,7 +302,7 @@ export function Board({ needed }: { needed: Set<string> }) {
                 tabIndex={0}
                 aria-label={
                   def
-                    ? `\( {def.name} \){tarp ? ", under tarp" : ""}${def.kind === "generator" ? ", tap to gather" : ""}`
+                    ? `${def.name}${tarp ? ", under tarp" : ""}${def.kind === "generator" ? ", tap to gather" : ""}`
                     : tarp
                       ? `Tarped plank ${index + 1}`
                       : `Empty space ${index + 1}`
