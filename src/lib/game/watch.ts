@@ -131,7 +131,7 @@ export function applyKeepScan(
   const opened: KeepLetter[] = [];
   const fixed: KeepLetter[] = [];
   let seq = 0;
-  const uid = (topic: string) => `k\( {now.toString(36)}- \){seq++}-${topic.replace(/[^a-z0-9:-]/gi, "").slice(0, 24)}`;
+  const uid = (topic: string) => `k${now.toString(36)}-${seq++}-${topic.replace(/[^a-z0-9:-]/gi, "").slice(0, 24)}`;
 
   for (const n of keepLog) {
     if (n.status !== "open") continue;
