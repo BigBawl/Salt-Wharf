@@ -470,7 +470,7 @@
 }
 
 .item-pop {
-  animation: item-pop 280ms cubic-bezier(0.34, 1.36, 0.64, 1) both;
+  animation: item-pop 240ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 .fx-float {
@@ -509,13 +509,13 @@
 
 @keyframes item-pop {
   0% {
-    transform: scale(0.84);
+    scale: 0.84;
   }
   58% {
-    transform: scale(1.1);
+    scale: 1.16;
   }
   100% {
-    transform: scale(1);
+    scale: 1;
   }
 }
 
@@ -1100,6 +1100,65 @@ body.dragging-piece .sell-well {
   box-shadow: var(--shadow-panel);
 }
 
+/* Board overlays. These sit on top of the dock and never occupy layout, because a
+   conditional flex sibling above a flex-1 board resizes it (the P3 defect). */
+.board-chip,
+.combo-hud {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  opacity: 0;
+  scale: 0.92;
+  transition:
+    opacity 160ms ease,
+    scale 160ms ease;
+}
+
+.board-chip.is-on,
+.combo-hud.is-on {
+  opacity: 1;
+  scale: 1;
+}
+
+.combo-hud {
+  background: color-mix(in oklab, var(--color-energy) 90%, white);
+  color: var(--color-ink);
+  box-shadow: 0 2px 10px color-mix(in oklab, var(--color-energy) 40%, transparent);
+}
+
+.combo-hud.is-on {
+  animation: combo-pop 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes combo-pop {
+  0% {
+    scale: 1;
+  }
+  42% {
+    scale: 1.2;
+  }
+  100% {
+    scale: 1;
+  }
+}
+
+/* Anticipation on a valid drop target. Driven by pointer state (isOver), not CSS
+   :hover, so it works during a touch drag and cannot stick on a phone. */
+.board-cell {
+  transition: scale 120ms ease;
+}
+
+.board-cell.is-merge-target {
+  scale: 1.06;
+  z-index: 2;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .item-pop,
   .fx-float,
@@ -1111,6 +1170,7 @@ body.dragging-piece .sell-well {
   .merge-ring,
   .merge-mote,
   .board-thump,
+  .combo-hud,
   .bubble-chip {
     animation: none !important;
   }
