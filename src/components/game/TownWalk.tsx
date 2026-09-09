@@ -204,7 +204,7 @@ function BuildCard({ focus, onFocus }: { focus: number; onFocus: (i: number) => 
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-semibold uppercase tracking-wider text-energy">
-            {restored ? "Restored" : lookingCurrent ? `Build · \( {coveStep + 1}/ \){current?.steps.length ?? 1}` : "Later"}
+            {restored ? "Restored" : lookingCurrent ? `Build · ${coveStep + 1}/${current?.steps.length ?? 1}` : "Later"}
           </p>
           <h3 className="font-display text-lg italic leading-tight">{site.name}</h3>
           <p className="line-clamp-2 text-xs text-surface/80">{restored ? site.story : site.line}</p>
