@@ -80,7 +80,7 @@ export function topicFromLegacy(text: string): string {
   if (pic) {
     const name = pic[1]!.trim();
     const hit = Object.values(ITEMS).find((i) => i.name === name);
-    return hit ? `art:\( {hit.id}` : `art: \){name}`;
+    return hit ? `art:${hit.id}` : `art:${name}`;
   }
   if (/notices were sitting/i.test(raw)) return "overlay";
   if (/starter crates/i.test(raw)) return "crates";
