@@ -1,4 +1,4 @@
-const CACHE = "saltwharf-v3";
+const CACHE = "saltwharf-v4";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -24,7 +24,7 @@ self.addEventListener("fetch", (event) => {
   // deploy, so cache-first here pins players to the build they first visited and
   // no amount of redeploying reaches them. Vite content-hashes the JS and CSS it
   // bundles, so a fresh index.html pulls a whole new build of the CODE in on its
-  // own. Files under public/ are not hashed — see the note on the branch below.
+  // own. Files under public/ are not hashed - see the note on the branch below.
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req)
@@ -40,8 +40,8 @@ self.addEventListener("fetch", (event) => {
 
   // Everything else is cache-first. Vite's bundled output (assets/*.<hash>.js|css)
   // is content-hashed, so a new build simply asks for a new filename and this
-  // branch fetches it. But files served straight out of public/ — items/, village/,
-  // portraits/, og.jpg, the manifest — keep stable URLs, so CHANGED ART DOES NOT
+  // branch fetches it. But files served straight out of public/ - items/, village/,
+  // portraits/, og.jpg, the manifest - keep stable URLs, so CHANGED ART DOES NOT
   // REACH PLAYERS until CACHE is bumped.
   // Rule: any release that touches public/ must also bump CACHE at the top of this
   // file. A future option is to append a build id in asset() and retire the rule.
