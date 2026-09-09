@@ -92,6 +92,54 @@ function hitClick(at = 0, gain = 0.05) {
   tone(jitter(1680), 0.045, "triangle", gain * 0.7, at);
 }
 
+/**
+ * Highest STATIC tone inside each chain's own `switch` case.
+ * Deliberately excludes the global `t >= 6` tone (1568) and the capstone stack
+ * (1046/1318/1760) — both fire for every chain, so folding them in would make a
+ * tier-6 hearth merge derive its interval from 1568 instead of 392.
+ * Tier-scaled partials (`262 + t * 18` etc.) are excluded for the same reason:
+ * the interval must not drift with tier.
+ */
+const CHAIN_TOP: Record<string, number> = {
+  tide: 988,
+  hearth: 392,
+  craft: 494,
+  net: 554,
+  bloom: 988,
+  wreck: 1174,
+  keep: 1976,
+  hammer: 622,
+  paint: 698,
+  lamp: 1174,
+  special: 440,
+};
+
+/** fifth, octave, octave+third, octave+fifth */
+const COMBO_LADDER = [1.5, 2.0, 2.5, 3.0];
+/** Above this a partial is shrill and fatiguing on a phone speaker. */
+const COMBO_CEILING = 2600;
+
+/**
+ * One extra partial, derived as a true interval from the chain's own tone so it
+ * inherits that chain's key. Steps DOWN the ladder until it fits the ceiling; if
+ * not even the fifth fits (keep, at 1976) it emits no pitch at all and the combo
+ * reads as a widening tail instead.
+ */
+function comboPartial(chain: string, combo: number) {
+  let i = combo >= 12 ? 3 : combo >= 8 ? 2 : combo >= 5 ? 1 : combo >= 3 ? 0 : -1;
+  if (i < 0) return;
+  const top = CHAIN_TOP[chain] ?? CHAIN_TOP.tide ?? 988;
+  while (i >= 0 && top * (COMBO_LADDER[i] ?? 1.5) > COMBO_CEILING) i -= 1;
+  const grow = combo >= 15 ? 1.35 : combo >= 10 ? 1.2 : combo >= 5 ? 1.1 : 1;
+  if (i < 0) {
+    const dur = Math.min(0.2, 0.08 + combo * 0.004);
+    const gain = Math.min(0.03, 0.014 + combo * 0.0008);
+    noiseBurst(dur, gain, 0.05, 1200, 0.8);
+    return;
+  }
+  tone(top * (COMBO_LADDER[i] ?? 1.5), 0.1 * grow, "sine", 0.022 * grow, 0.04);
+}
+
 export const sfx = {
   tap() {
     tone(jitter(390, 0.06), 0.06, "triangle", 0.038);
@@ -102,7 +150,7 @@ export const sfx = {
     tone(jitter(520), 0.09, "sine", 0.045);
     tone(jitter(780), 0.11, "triangle", 0.028, 0.04);
   },
-  merge(tier = 1, capstone = false, chain = "tide") {
+  merge(tier = 1, capstone = false, chain = "tide", combo = 0) {
     const t = Math.min(8, Math.max(1, tier));
     hitClick(0, 0.04 + t * 0.004);
     switch (chain) {
@@ -176,6 +224,8 @@ export const sfx = {
       tone(jitter(1046), 0.22, "triangle", 0.04, 0.2);
       tone(jitter(1318), 0.26, "sine", 0.032, 0.28);
       tone(jitter(1760), 0.3, "sine", 0.024, 0.36);
+    } else {
+      comboPartial(chain, combo);
     }
   },
   invalid() {

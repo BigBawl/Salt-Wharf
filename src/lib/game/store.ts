@@ -147,6 +147,9 @@ export type GameState = SaveSlice & {
   fx: FxBurst[];
   popUid: string | null;
   lastMerge: LastMerge | null;
+  /** live-session only; deliberately absent from snapshot() */
+  comboCount: number;
+  comboLastAt: number;
   lastRestore: LastRestore | null;
   undo: UndoSell | null;
   armedSplit: boolean;
@@ -180,6 +183,7 @@ export type GameState = SaveSlice & {
   readKeepMail: () => void;
   dismissHowTo: () => void;
   toggleSfx: () => void;
+  breakCombo: () => void;
   pushToast: (text: string, kind?: Toast["kind"]) => void;
   spawnFx: (burst: Omit<FxBurst, "id">) => void;
   clearFx: (id: string) => void;
@@ -465,6 +469,8 @@ export const useGame = create<GameState>((set, get) => ({
   toasts: [],
   fx: [],
   popUid: null,
+  comboCount: 0,
+  comboLastAt: 0,
   lastMerge: null,
   lastRestore: null,
   undo: null,
@@ -514,6 +520,8 @@ export const useGame = create<GameState>((set, get) => ({
       lastRestore: null,
       undo: null,
       armedSplit: false,
+      comboCount: 0,
+      comboLastAt: 0,
     });
   },
 
@@ -635,6 +643,11 @@ export const useGame = create<GameState>((set, get) => ({
       ];
     }
     const capstone = Boolean(mergedDef && !mergedDef.nextId && mergedDef.kind === "item");
+    // Combo is action-reset, not a clock. The abandonment cap only stops a streak
+    // surviving overnight; it is never a play rule and is never checked in tick().
+    const comboAt = Date.now();
+    const comboCount =
+      s.comboCount > 0 && comboAt - s.comboLastAt <= COMBO_ABANDON_MS ? s.comboCount + 1 : 1;
     const clocks = { ...s.clocks };
     if (item(a.itemId)?.kind === "generator") delete clocks[a.uid];
     if (item(b.itemId)?.kind === "generator") delete clocks[b.uid];
@@ -650,6 +663,8 @@ export const useGame = create<GameState>((set, get) => ({
       merges,
       discovered: prizeId ? discover(discovered, prizeId) : discovered,
       popUid: merged.uid,
+      comboCount,
+      comboLastAt: comboAt,
       lastMerge: {
         index: to,
         uid: merged.uid,
@@ -666,7 +681,7 @@ export const useGame = create<GameState>((set, get) => ({
     };
     set(next);
     queueSave({ ...s, ...next });
-    play(s, () => sfx.merge(mergedDef?.tier ?? 1, capstone, mergedDef?.chain ?? "tide"));
+    play(s, () => sfx.merge(mergedDef?.tier ?? 1, capstone, mergedDef?.chain ?? "tide", comboCount));
     if (s.locked.includes(to) && !locked.includes(to)) {
       get().pushToast("A tarp comes off the plank");
     }
@@ -689,7 +704,9 @@ export const useGame = create<GameState>((set, get) => ({
     let inbox = s.inbox;
     let discovered = s.discovered;
     if (def.consume.split) {
-      const next = { board, selected: null, undo: null, armedSplit: true };
+      // arming shears is splitAt by another name, so it ends a streak.
+      // The energy / charges / chest / pouch branches below do not.
+      const next = { board, selected: null, undo: null, armedSplit: true, comboCount: 0, comboLastAt: 0 };
       set(next);
       queueSave({ ...s, ...next } as SaveSlice);
       play(s, sfx.tap);
@@ -800,6 +817,7 @@ export const useGame = create<GameState>((set, get) => ({
     set(next);
     queueSave({ ...s, ...next });
     play(s, sfx.sell);
+    get().breakCombo();
     return true;
   },
 
@@ -895,6 +913,7 @@ export const useGame = create<GameState>((set, get) => ({
     play(s, nextLevel > prevLevel ? sfx.level : sfx.deliver);
     if (advanced) get().pushToast(`${stageName(stage)} is open`);
     else if (nextLevel > prevLevel) get().pushToast(`The tide rises — level ${nextLevel + 1}`);
+    get().breakCombo();
     return true;
   },
 
@@ -929,6 +948,7 @@ export const useGame = create<GameState>((set, get) => ({
     set(next);
     queueSave({ ...s, ...next } as SaveSlice, true);
     play(s, sfx.deliver);
+    get().breakCombo();
     return true;
   },
 
@@ -952,6 +972,7 @@ export const useGame = create<GameState>((set, get) => ({
     queueSave({ ...s, ...next });
     play(s, sfx.level);
     get().pushToast(`${stageName(stage)} is open`);
+    get().breakCombo();
     return true;
   },
 
@@ -974,6 +995,7 @@ export const useGame = create<GameState>((set, get) => ({
     queueSave({ ...s, ...next });
     play(s, sfx.level);
     get().pushToast(look.name);
+    get().breakCombo();
     return true;
   },
 
@@ -1012,6 +1034,7 @@ export const useGame = create<GameState>((set, get) => ({
       set(next);
       queueSave({ ...s, ...next });
       play(s, sfx.sell);
+      get().breakCombo();
       get().pushToast(`Lucky tide · ${next.luckyLeft}`);
       return true;
     }
@@ -1034,6 +1057,7 @@ export const useGame = create<GameState>((set, get) => ({
       set(next);
       queueSave({ ...s, ...next } as SaveSlice);
       play(s, sfx.spawn);
+      get().breakCombo();
       get().pushToast("Holt's shears");
       return true;
     }
@@ -1064,6 +1088,7 @@ export const useGame = create<GameState>((set, get) => ({
     set(next);
     queueSave({ ...s, ...next } as SaveSlice);
     play(s, sfx.spawn);
+    get().breakCombo();
     get().pushToast(item(needId)?.name ?? "Parcel");
     return true;
   },
@@ -1106,6 +1131,7 @@ export const useGame = create<GameState>((set, get) => ({
     queueSave({ ...s, ...next } as SaveSlice);
     play(s, sfx.spawn);
     get().pushToast(crate.name);
+    get().breakCombo();
     return true;
   },
 
@@ -1313,6 +1339,7 @@ export const useGame = create<GameState>((set, get) => ({
     } else {
       get().pushToast(`${node.name} · step ${coveStep}/${node.steps.length}`);
     }
+    get().breakCombo();
     return true;
   },
 
@@ -1383,6 +1410,7 @@ export const useGame = create<GameState>((set, get) => ({
     queueSave({ ...s, ...next } as SaveSlice);
     play(s, sfx.merge);
     get().pushToast(`Split into ${item(prev)?.name ?? "finds"}`);
+    get().breakCombo();
     return true;
   },
 
@@ -1656,6 +1684,11 @@ export const useGame = create<GameState>((set, get) => ({
     });
   },
 
+  breakCombo: () => {
+    if (get().comboCount === 0) return;
+    set({ comboCount: 0, comboLastAt: 0 });
+  },
+
   pushToast: (text, kind = "ok") => {
     const id = uidToast();
     set((s) => {
@@ -1684,6 +1717,9 @@ export const useGame = create<GameState>((set, get) => ({
 
   clearFx: (id) => set((s) => ({ fx: s.fx.filter((f) => f.id !== id) })),
 }));
+
+/** Hygiene only: stops a streak surviving an overnight gap. Not a play clock. */
+const COMBO_ABANDON_MS = 30_000;
 
 let toastN = 0;
 function uidToast() {

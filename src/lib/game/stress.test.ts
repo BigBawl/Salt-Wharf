@@ -3,8 +3,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { useGame } from "./store.ts";
-import { BOARD_SIZE, ITEMS, piece } from "./catalog.ts";
+import { useGame, flushSave } from "./store.ts";
+import { BOARD_SIZE, DELIVERIES_PER_STAGE, ITEMS, SAVE_KEY, SAVE_VERSION, piece } from "./catalog.ts";
 import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STORAGE_SIZE, maxCharges, pityRoll, rechargeMs } from "./loop.ts";
 import { healSave, applyKeepScan } from "./watch.ts";
 
@@ -429,5 +429,175 @@ describe("saltwharf stress", () => {
     );
     assert.equal(useGame.getState().board[idx], null);
     assert.ok(useGame.getState().undo, "a sold find must still be undoable");
+  });
+
+  // ---- Phase 1: combo is a live performance, never a saved one ----
+
+  /** puts two identical mergeable finds on adjacent free cells and returns their indices */
+  function seedPair(itemId = "tide-1"): [number, number] {
+    const s = useGame.getState();
+    const free = s.board
+      .map((p, i) => (!p && !s.locked.includes(i) ? i : -1))
+      .filter((i) => i >= 0);
+    const [a, b] = [free[0]!, free[1]!];
+    const board = s.board.slice();
+    board[a] = piece(itemId);
+    board[b] = piece(itemId);
+    useGame.setState({ board });
+    return [a, b];
+  }
+
+  it("a player merge starts a combo and the next one continues it", () => {
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+    assert.equal(useGame.getState().comboCount, 0);
+
+    let [a, b] = seedPair();
+    assert.equal(useGame.getState().mergePieces(a, b), true);
+    assert.equal(useGame.getState().comboCount, 1);
+
+    [a, b] = seedPair();
+    assert.equal(useGame.getState().mergePieces(a, b), true);
+    assert.equal(useGame.getState().comboCount, 2, "a second merge must continue the streak");
+  });
+
+  it("selling breaks a combo; parking and gathering do not", () => {
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+
+    let [a, b] = seedPair();
+    useGame.getState().mergePieces(a, b);
+    assert.equal(useGame.getState().comboCount, 1);
+
+    // parking a find is not a change of activity.
+    // The cell must be UNLOCKED: storeFromBoard and sellAt both refuse a tarped
+    // plank and return false, which would make this a silent no-op.
+    const s1 = useGame.getState();
+    const idx = s1.board.findIndex(
+      (p, i) => p && ITEMS[p.itemId]?.kind === "item" && !s1.locked.includes(i),
+    );
+    assert.ok(idx >= 0, "needed an untarped find to park");
+    assert.equal(useGame.getState().storeFromBoard(idx), true, "the park must actually happen");
+    assert.equal(useGame.getState().comboCount, 1, "storeFromBoard must not break a streak");
+
+    [a, b] = seedPair();
+    useGame.getState().mergePieces(a, b);
+    assert.equal(useGame.getState().comboCount, 2);
+
+    // selling is
+    const s2 = useGame.getState();
+    const sellIdx = s2.board.findIndex(
+      (p, i) => p && ITEMS[p.itemId]?.kind === "item" && !s2.locked.includes(i),
+    );
+    assert.ok(sellIdx >= 0, "needed an untarped find to sell");
+    assert.equal(
+      useGame.getState().sellAt(sellIdx, { confirmed: true }),
+      true,
+      "the sell must actually happen, or this proves nothing",
+    );
+    assert.equal(useGame.getState().comboCount, 0, "sellAt must break the streak");
+
+    [a, b] = seedPair();
+    useGame.getState().mergePieces(a, b);
+    assert.equal(useGame.getState().comboCount, 1, "the next merge restarts at 1");
+  });
+
+  it("a sip does not break a combo but lucky does", () => {
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+    const [a, b] = seedPair();
+    useGame.getState().mergePieces(a, b);
+    assert.equal(useGame.getState().comboCount, 1);
+
+    useGame.setState({ pearls: 500, energy: 10, lastEnergyAt: Date.now() });
+    useGame.getState().buyBoost("sip");
+    assert.equal(useGame.getState().comboCount, 1, "sip is the same +25 energy as a flask");
+
+    useGame.getState().buyBoost("lucky");
+    assert.equal(useGame.getState().comboCount, 0, "other boosts are a change of activity");
+  });
+
+  it("offline auto-drops never build a combo", () => {
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+    const s0 = useGame.getState();
+    const free = s0.board.findIndex((p, i) => !p && !s0.locked.includes(i));
+    const drop = piece("gen-tide-2");
+    const board = s0.board.slice();
+    board[free] = drop;
+    const away = 8 * 60 * 60 * 1000;
+    const now = Date.now();
+    useGame.setState({
+      board,
+      inbox: [],
+      comboCount: 0,
+      comboLastAt: 0,
+      lastTickAt: now - away,
+      clocks: { [drop.uid]: { charges: 7, readyAt: now, autoAt: now - away } },
+    });
+
+    api.tick(now);
+
+    assert.equal(
+      useGame.getState().comboCount,
+      0,
+      "a 24-drop absence must not read as a 24-combo and pay out milestones",
+    );
+  });
+
+  it("combo state is never written to the save", () => {
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+    const [a, b] = seedPair();
+    useGame.getState().mergePieces(a, b);
+    assert.ok(useGame.getState().comboCount > 0, "need a live combo to prove it is not saved");
+
+    flushSave();
+    const blob = localStorage.getItem(SAVE_KEY);
+    assert.ok(blob, "expected a save");
+    const saved = JSON.parse(blob!) as Record<string, unknown>;
+    assert.equal("comboCount" in saved, false, "comboCount must not reach the save");
+    assert.equal("comboLastAt" in saved, false, "comboLastAt must not reach the save");
+  });
+
+  it("a purchase that fails does not break a combo", () => {
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+    const [a, b] = seedPair();
+    useGame.getState().mergePieces(a, b);
+    assert.equal(useGame.getState().comboCount, 1);
+
+    // too poor to buy: buyBoost returns before it can reach breakCombo
+    useGame.setState({ pearls: 0 });
+    assert.equal(useGame.getState().buyBoost("lucky"), false, "the buy must fail");
+    assert.equal(
+      useGame.getState().comboCount,
+      1,
+      "a purchase that never happened must not end a streak",
+    );
+  });
+
+  it("opening the next reach breaks a combo", () => {
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+    const [a, b] = seedPair();
+    useGame.getState().mergePieces(a, b);
+    assert.equal(useGame.getState().comboCount, 1);
+
+    // paying a 300+ pearl gate is a bigger change of activity than a dock skin
+    useGame.setState({ taskIndex: DELIVERIES_PER_STAGE, pearls: 5000 });
+    assert.equal(useGame.getState().unlockStage(), true, "the reach must actually open");
+    assert.equal(useGame.getState().comboCount, 0, "unlockStage must break the streak");
+  });
+
+  it("Phase 1 adds no save migration", () => {
+    assert.equal(SAVE_VERSION, 9, "session juice must not force a SAVE_VERSION bump");
   });
 });
