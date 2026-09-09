@@ -5,7 +5,8 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { useGame, flushSave } from "./store.ts";
 import { BOARD_SIZE, DELIVERIES_PER_STAGE, ITEMS, SAVE_KEY, SAVE_VERSION, piece } from "./catalog.ts";
-import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STORAGE_SIZE, maxCharges, pityRoll, rechargeMs } from "./loop.ts";
+import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, takeFromPools, tierBand } from "./loop.ts";
+import { CHAINS, type PlayChain } from "./catalog.ts";
 import { healSave, applyKeepScan } from "./watch.ts";
 
 function check(label: string) {
@@ -599,5 +600,290 @@ describe("saltwharf stress", () => {
 
   it("Phase 1 adds no save migration", () => {
     assert.equal(SAVE_VERSION, 9, "session juice must not force a SAVE_VERSION bump");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2a -- order shapes and the generator fix.
+//
+// The launch bug: tier = lo + ((seed * 5 + slot * 7) % span). Whenever span
+// shared a factor with 5 the seed term vanished and the slot returned one tier
+// forever -- total freeze at stages 20-24, two values per slot from 45 on.
+// Test "no shape is frozen to a tier" is the regression gate for that, and for
+// its second incarnation (shape and tier drawn from one hash).
+// ---------------------------------------------------------------------------
+
+const ALL_CHAINS = UNLOCK_ORDER.slice() as PlayChain[];
+const STAGES = Array.from({ length: 120 }, (_, i) => i);
+
+function tierOf(itemId: string): number {
+  return Number(itemId.slice(itemId.lastIndexOf("-") + 1));
+}
+function chainOf(itemId: string): string {
+  return itemId.slice(0, itemId.lastIndexOf("-"));
+}
+function order(stage: number, slot: number, seed: number, unlocked: PlayChain[] = ALL_CHAINS) {
+  return makeLiveOrder({ stage, slot, seed, avoid: new Set<string>(), unlocked });
+}
+/** Recover the shape from what shipped, since makeLiveOrder returns only the order. */
+function classify(reqs: ReadonlyArray<{ itemId: string; count: number }>): string {
+  if (reqs.length === 1) return reqs[0]!.count === 3 ? "haul" : "fetch";
+  if (reqs.length === 3) return "assorted";
+  if (reqs.length === 2) {
+    if (reqs.every((r) => r.count === 2)) return "pair";
+    const sameChain = chainOf(reqs[0]!.itemId) === chainOf(reqs[1]!.itemId);
+    return sameChain ? "ladder" : "fetch";
+  }
+  return "fetch";
+}
+
+describe("saltwharf orders", () => {
+  it("no shape is frozen to a tier", () => {
+    for (const stage of STAGES) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        const window = orderWindow(ALL_CHAINS);
+        const chain = window[slot % window.length]!;
+        const b = tierBand(stage, slot, chain);
+        const seen = new Set<number>();
+        for (let seed = 1; seed <= 200; seed++) {
+          const o = order(stage, slot, seed);
+          if (classify(o.requires) !== "fetch") continue;
+          const first = o.requires[0]!;
+          if (chainOf(first.itemId) !== chain) continue;
+          seen.add(tierOf(first.itemId));
+        }
+        const want = b.hi - b.lo + 1;
+        assert.equal(
+          seen.size,
+          want,
+          `stage ${stage} slot ${slot}: fetch saw ${[...seen].sort((x, y) => x - y).join(",")} of band ${b.lo}-${b.hi}`,
+        );
+      }
+    }
+  });
+
+  it("draw domains do not correlate", () => {
+    const kinds = Object.values(DRAW);
+    for (const stage of [8, 22, 45, 70]) {
+      for (const a of kinds) {
+        for (const c of kinds) {
+          if (a === c) continue;
+          for (let modA = 3; modA <= 7; modA++) {
+            for (let modB = 3; modB <= 7; modB++) {
+              const seen = new Map<number, Set<number>>();
+              for (let seed = 1; seed <= 600; seed++) {
+                const x = mix(stage, 0, seed, a) % modA;
+                const y = mix(stage, 0, seed, c) % modB;
+                if (!seen.has(x)) seen.set(x, new Set());
+                seen.get(x)!.add(y);
+              }
+              for (const [x, ys] of seen) {
+                assert.equal(ys.size, modB, `domain ${a}->${c} mod ${modA}/${modB} froze at x=${x}`);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("the tier floor rises and tier 1 retires", () => {
+    for (const stage of STAGES) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 60; seed++) {
+          const o = order(stage, slot, seed);
+          const shape = classify(o.requires);
+          if (shape !== "fetch" || stage < 15) continue;
+          // Haul draws at lo-1 by design and may legitimately sit on tier 1.
+          for (const r of o.requires) {
+            assert.ok(tierOf(r.itemId) >= 2, `stage ${stage} slot ${slot} fetch asked ${r.itemId}`);
+          }
+        }
+      }
+    }
+  });
+
+  it("nothing is asked above its chain ceiling", () => {
+    for (const stage of STAGES) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 60; seed++) {
+          const o = order(stage, slot, seed);
+          for (const r of o.requires) {
+            const ch = chainOf(r.itemId) as PlayChain;
+            const cap = CHAINS[ch].length;
+            assert.ok(tierOf(r.itemId) <= cap, `${r.itemId} exceeds cap ${cap}`);
+            assert.ok(ITEMS[r.itemId], `${r.itemId} is not a real item`);
+          }
+        }
+      }
+    }
+  });
+
+  it("orders never name a locked chain", () => {
+    for (const unlocked of [["tide"], ["tide", "hearth"], ["tide", "hearth", "craft"]] as PlayChain[][]) {
+      const allowed = new Set(orderWindow(unlocked));
+      for (const stage of STAGES) {
+        for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+          for (let seed = 1; seed <= 30; seed++) {
+            const o = order(stage, slot, seed, unlocked);
+            for (const r of o.requires) {
+              assert.ok(allowed.has(chainOf(r.itemId) as PlayChain), `${r.itemId} not in ${[...allowed]}`);
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("the generator is deterministic for a fixed unlock set", () => {
+    for (const stage of [0, 13, 21, 47, 91]) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 40; seed++) {
+          assert.deepEqual(order(stage, slot, seed), order(stage, slot, seed));
+        }
+      }
+    }
+  });
+
+  it("fetch stays the common ask", () => {
+    for (const stage of [30, 45, 60, 90]) {
+      let fetch = 0;
+      let total = 0;
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 500; seed++) {
+          total += 1;
+          if (classify(order(stage, slot, seed).requires) === "fetch") fetch += 1;
+        }
+      }
+      const share = fetch / total;
+      assert.ok(share >= 0.35, `stage ${stage}: fetch was ${(share * 100).toFixed(1)}%`);
+    }
+  });
+
+  it("shapes unlock on their gates and ladder never goes missing", () => {
+    const shapesAt = (stage: number, unlocked: PlayChain[] = ALL_CHAINS) => {
+      const s = new Set<string>();
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 300; seed++) s.add(classify(order(stage, slot, seed, unlocked).requires));
+      }
+      return s;
+    };
+    for (const stage of [0, 3, 7]) {
+      assert.deepEqual([...shapesAt(stage)], ["fetch"], `stage ${stage} should be fetch only`);
+    }
+    assert.ok(shapesAt(30).has("haul"), "haul missing at 30");
+    assert.ok(shapesAt(30).has("assorted"), "assorted missing at 30");
+    assert.ok(shapesAt(30).has("pair"), "pair missing at 30");
+    // The v2 gate (hi-lo>=3) left wreck with ladder for five stages of 120.
+    for (const stage of [10, 25, 60, 80, 119]) {
+      const pool = shapePool(stage, 0, ALL_CHAINS);
+      assert.ok(pool.includes("ladder"), `ladder absent from the pool at stage ${stage}`);
+    }
+  });
+
+  it("a single unlocked chain never produces a multi-chain order", () => {
+    for (const stage of STAGES) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 40; seed++) {
+          const o = order(stage, slot, seed, ["tide"]);
+          const chains = new Set(o.requires.map((r) => chainOf(r.itemId)));
+          assert.equal(chains.size, 1, `stage ${stage} slot ${slot} spanned ${[...chains]}`);
+        }
+      }
+    }
+  });
+
+  it("no order is bigger than the dock can hold", () => {
+    for (const stage of STAGES) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 40; seed++) {
+          const o = order(stage, slot, seed);
+          assert.ok(o.requires.length <= 3, `stage ${stage} asked ${o.requires.length} items`);
+          for (const r of o.requires) {
+            assert.ok(r.count >= 1 && r.count <= 3, `count ${r.count} on ${r.itemId}`);
+          }
+          // Pair is two ids at count 2. Legal on purpose -- do not "fix" it to 2+1.
+          const total = o.requires.reduce((n, r) => n + r.count, 0);
+          assert.ok(total <= 4, `stage ${stage} asked ${total} pieces`);
+        }
+      }
+    }
+  });
+
+  it("seeded slots avoid asking for the same item twice", () => {
+    for (const stage of [12, 25, 40, 70]) {
+      const orders = seedOrders(stage, ALL_CHAINS);
+      const ids = orders.flatMap((o) => o.requires.map((r) => r.itemId));
+      assert.equal(new Set(ids).size, ids.length, `stage ${stage} duplicated across slots: ${ids.join(",")}`);
+    }
+  });
+
+  it("the generator is total on a starved board", () => {
+    for (const stage of STAGES) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 50; seed++) {
+          const avoid = new Set(["tide-1", "tide-2", "tide-3", "tide-4", "tide-5"]);
+          const o = makeLiveOrder({ stage, slot, seed, avoid, unlocked: ["tide"] });
+          assert.ok(o, `stage ${stage} slot ${slot} returned nothing`);
+          assert.ok(o.requires.length >= 1, `stage ${stage} slot ${slot} returned an empty order`);
+          for (const r of o.requires) assert.ok(ITEMS[r.itemId], `bad id ${r.itemId}`);
+        }
+      }
+    }
+  });
+
+  it("the visitor branch is untouched", () => {
+    const a = makeLiveOrder({
+      stage: 20, slot: 1, seed: 9, avoid: new Set<string>(),
+      unlocked: ALL_CHAINS, kind: "auto", forceId: "tide-4",
+    });
+    const b = makeLiveOrder({
+      stage: 20, slot: 1, seed: 9, avoid: new Set<string>(),
+      unlocked: ALL_CHAINS, kind: "auto", forceId: "tide-4",
+    });
+    assert.deepEqual(a, b);
+    assert.equal(a.kind, "auto");
+    assert.equal(a.pearls, 12 + 20 * 2, "visitor pay must not drift");
+    assert.equal(a.xp, 18 + 20, "visitor xp must not drift");
+    assert.equal(a.rewardItem, "chest-1");
+    assert.deepEqual(a.requires, [{ itemId: "tide-4", count: 1 }]);
+  });
+
+  it("haul never asks tier 0 and ladder never clears the ceiling", () => {
+    for (const stage of STAGES) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 80; seed++) {
+          const o = order(stage, slot, seed);
+          const shape = classify(o.requires);
+          if (shape === "haul") {
+            assert.ok(tierOf(o.requires[0]!.itemId) >= 1, `haul asked tier 0 at stage ${stage}`);
+          }
+          if (shape === "ladder") {
+            const [x, y] = o.requires.map((r) => tierOf(r.itemId));
+            const ch = chainOf(o.requires[0]!.itemId) as PlayChain;
+            const b = tierBand(stage, slot, ch);
+            assert.equal(y! - x!, 2, `ladder gap was ${y! - x!} at stage ${stage}`);
+            assert.ok(y! <= b.hi, `ladder reached ${y} above ceiling ${b.hi} at stage ${stage}`);
+          }
+        }
+      }
+    }
+  });
+
+  it("orders written by the old generator still fill", () => {
+    // Shape a pre-2a save order by hand and run it through the live fill path.
+    const legacy = {
+      id: "o5-0-1", slot: 0, kind: "resident" as const, character: "mae" as const,
+      title: "Sea Glass for the inn", body: "Bring Sea Glass. Quiet Reach.",
+      requires: [{ itemId: "tide-1", count: 2 }], pearls: 7, xp: 15,
+    };
+    const board = Array.from({ length: BOARD_SIZE }, () => null) as Array<ReturnType<typeof piece> | null>;
+    board[0] = piece("tide-1");
+    board[1] = piece("tide-1");
+    const storage = Array.from({ length: STORAGE_SIZE }, () => null) as Array<ReturnType<typeof piece> | null>;
+    assert.equal(canFillOrder(board, storage, legacy, []), true, "a legacy order must still be fillable");
+    const after = takeFromPools(board, storage, legacy, []);
+    assert.equal(after.board.filter(Boolean).length, 0, "the pieces must be consumed");
+    assert.equal(SAVE_VERSION, 9, "order shapes must not force a SAVE_VERSION bump");
   });
 });

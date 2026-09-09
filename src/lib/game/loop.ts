@@ -300,6 +300,197 @@ function itemIdAt(chain: PlayChain, tier: number): string {
   return `${chain}-${Math.min(cap, Math.max(1, tier))}`;
 }
 
+/**
+ * Order shapes. Phase 2a.
+ *
+ * Every random-looking choice in this file is a pure hash of (stage, slot, seed)
+ * plus a DRAW domain. The domain is required, never defaulted: two draw sites that
+ * share a stream become correlated, and when the two moduli share a factor the
+ * second draw collapses to a single value. That is the exact bug this file was
+ * written to remove -- the old picker was `seed * 5 % span`, which froze three of
+ * the four dock slots to one tier each for stages 20-24 and to two tiers each from
+ * stage 45 to the end of the game.
+ */
+export const DRAW = { shape: 1, tier: 2, chain: 3, second: 4, text: 5 } as const;
+export type DrawKind = (typeof DRAW)[keyof typeof DRAW];
+
+export function mix(a: number, b: number, c: number, d: DrawKind): number {
+  let h =
+    (Math.imul(a | 0, 374761393) +
+      Math.imul(b | 0, 668265263) +
+      Math.imul(c | 0, 2246822519) +
+      Math.imul(d | 0, 3266489917)) >>>
+    0;
+  h = (h ^ (h >>> 13)) >>> 0;
+  h = Math.imul(h, 1274126177) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/**
+ * Tier band for one chain. Computed per chain because caps differ (tide 10,
+ * net 8, wreck 6) -- a shared band would ask for a wreck-7 that does not exist.
+ * The ceiling formula is unchanged from launch. The floor is new: it rises with
+ * stage so tier-1 asks retire, and is clamped to hi-2 so the band is never
+ * narrower than three tiers and never inverts.
+ */
+export function tierBand(
+  stage: number,
+  slot: number,
+  chain: PlayChain,
+): { cap: number; lo: number; hi: number } {
+  const cap = CHAINS[chain].length;
+  const hi = Math.min(cap, 1 + Math.floor(stage / 5) + (slot === 3 ? 1 : 0));
+  const lo = Math.max(1, Math.min(hi - 2, 1 + Math.floor(stage / 10)));
+  return { cap, lo, hi };
+}
+
+export type OrderShape = "fetch" | "haul" | "ladder" | "assorted" | "pair";
+
+type Req = { itemId: string; count: number };
+type ShapeCtx = {
+  stage: number;
+  slot: number;
+  seed: number;
+  chains: readonly PlayChain[];
+  avoid: Set<string>;
+};
+
+/**
+ * Fetch holds three tickets so it stays the common ask as the other shapes
+ * unlock: 100% -> 75% -> 60% -> 50% -> 43%.
+ */
+export function shapePool(
+  stage: number,
+  slot: number,
+  chains: readonly PlayChain[],
+): OrderShape[] {
+  const pool: OrderShape[] = ["fetch", "fetch", "fetch"];
+  if (stage >= 8) pool.push("haul");
+  if (stage >= 16 && chains.length >= 3) pool.push("assorted");
+  if (stage >= 22 && chains.length >= 2) pool.push("pair");
+  const primary = chains[slot % chains.length] ?? chains[0]!;
+  const b = tierBand(stage, slot, primary);
+  // Width alone would switch ladder on at stage 5 for slot 3, whose ceiling runs
+  // one tier ahead. The stage floor keeps the opening reaches to fetch and haul.
+  if (stage >= 10 && b.hi - b.lo >= 2) pool.push("ladder");
+  return pool;
+}
+
+function primaryChain(ctx: ShapeCtx): PlayChain {
+  return ctx.chains[ctx.slot % ctx.chains.length] ?? ctx.chains[0]!;
+}
+
+/** Total. Never returns null -- a duplicate across slots is the allowed degradation. */
+function buildFetch(ctx: ShapeCtx): Req[] {
+  const { stage, slot, seed, chains, avoid } = ctx;
+  let chain = primaryChain(ctx);
+  const b = tierBand(stage, slot, chain);
+  const tier = b.lo + (mix(stage, slot, seed, DRAW.tier) % (b.hi - b.lo + 1));
+  let id = itemIdAt(chain, tier);
+  if (avoid.has(id) && chains.length > 1) {
+    for (let k = 1; k < chains.length; k++) {
+      const alt = chains[(chains.indexOf(chain) + k) % chains.length]!;
+      const altId = itemIdAt(alt, tierBand(stage, slot, alt).lo);
+      if (!avoid.has(altId)) {
+        chain = alt;
+        id = altId;
+        break;
+      }
+    }
+  }
+  const requires: Req[] = [{ itemId: id, count: 1 }];
+  // Shipped since launch. Kept deliberately: without it, two-chain orders would
+  // vanish for stages 2-15 while Assorted waits at 16. The `else if` is load
+  // bearing -- slot 3 doubles only when the two-chain branch did not fire.
+  if (slot >= 2 && chains.length >= 3 && stage >= 2) {
+    const chainB = chains[(chains.indexOf(chain) + 1) % chains.length]!;
+    const idB = itemIdAt(chainB, tierBand(stage, slot, chainB).lo);
+    if (idB !== id && !avoid.has(idB)) requires.push({ itemId: idB, count: 1 });
+  } else if (slot === 3 && stage >= 4) {
+    requires[0]!.count = 2;
+  }
+  return requires;
+}
+
+/** Volume, not depth: three stacks one tier under the floor. */
+function buildHaul(ctx: ShapeCtx): Req[] | null {
+  const { stage, slot, avoid } = ctx;
+  const chain = primaryChain(ctx);
+  const b = tierBand(stage, slot, chain);
+  const tier = Math.max(1, b.lo - 1);
+  const id = itemIdAt(chain, tier);
+  if (avoid.has(id)) return null;
+  return [{ itemId: id, count: 3 }];
+}
+
+/** Depth: T and T+2 in one chain. T is drawn from [lo, hi-2] so T+2 never passes the ceiling. */
+function buildLadder(ctx: ShapeCtx): Req[] | null {
+  const { stage, slot, seed, avoid } = ctx;
+  const chain = primaryChain(ctx);
+  const b = tierBand(stage, slot, chain);
+  if (b.hi - b.lo < 2) return null;
+  const span = b.hi - 2 - b.lo + 1;
+  const low = b.lo + (mix(stage, slot, seed, DRAW.tier) % span);
+  const idLow = itemIdAt(chain, low);
+  const idHigh = itemIdAt(chain, low + 2);
+  if (idLow === idHigh) return null;
+  if (avoid.has(idLow) || avoid.has(idHigh)) return null;
+  return [
+    { itemId: idLow, count: 1 },
+    { itemId: idHigh, count: 1 },
+  ];
+}
+
+/** Breadth: one from each of three chains, each at its own floor. */
+function buildAssorted(ctx: ShapeCtx): Req[] | null {
+  const { stage, slot, seed, chains, avoid } = ctx;
+  if (chains.length < 3) return null;
+  const start = mix(stage, slot, seed, DRAW.chain) % chains.length;
+  const out: Req[] = [];
+  const used = new Set<string>();
+  for (let k = 0; k < chains.length && out.length < 3; k++) {
+    const ch = chains[(start + k) % chains.length]!;
+    const id = itemIdAt(ch, tierBand(stage, slot, ch).lo);
+    if (avoid.has(id) || used.has(id)) continue;
+    used.add(id);
+    out.push({ itemId: id, count: 1 });
+  }
+  return out.length === 3 ? out : null;
+}
+
+/** Two mid-floor stacks. Volume across chains; depth is Ladder's job. */
+function buildPair(ctx: ShapeCtx): Req[] | null {
+  const { stage, slot, seed, chains, avoid } = ctx;
+  if (chains.length < 2) return null;
+  const start = mix(stage, slot, seed, DRAW.second) % chains.length;
+  const out: Req[] = [];
+  const used = new Set<string>();
+  for (let k = 0; k < chains.length && out.length < 2; k++) {
+    const ch = chains[(start + k) % chains.length]!;
+    const id = itemIdAt(ch, tierBand(stage, slot, ch).lo);
+    if (avoid.has(id) || used.has(id)) continue;
+    used.add(id);
+    out.push({ itemId: id, count: 2 });
+  }
+  return out.length === 2 ? out : null;
+}
+
+const SHAPE_LINES: Record<OrderShape, readonly string[]> = {
+  fetch: ["Bring {names}.", "{names}, when the tide allows.", "Set {names} aside for me."],
+  haul: ["A full stack, then. {names}.", "Nothing clever. {names}, the lot of it.", "{names}. Load the barrow."],
+  ladder: [
+    "{names} -- the shallow one and the deep one.",
+    "Two off the same run: {names}.",
+    "{names}. One is easy. One is not.",
+  ],
+  assorted: [
+    "A little of everything: {names}.",
+    "{names}, one from each corner.",
+    "Spread the net wide. {names}.",
+  ],
+  pair: ["Two and two: {names}.", "{names}, a pair of each.", "Double it up. {names}."],
+};
+
 export function makeLiveOrder(args: {
   stage: number;
   slot: number;
@@ -327,48 +518,43 @@ export function makeLiveOrder(args: {
   }
   const window = orderWindow(unlocked);
   const chains = window.length ? window : STARTER_UNLOCKED;
-  let chain = chains[slot % chains.length]!;
-  if (!unlocked.includes(chain)) chain = chains[0]!;
-  const cap = CHAINS[chain].length;
-  const hi = Math.min(cap, 1 + Math.floor(stage / 5) + (slot === 3 ? 1 : 0));
-  const lo = 1;
-  const span = Math.max(1, hi - lo + 1);
-  let tier = lo + ((seed * 5 + slot * 7) % span);
-  let id = itemIdAt(chain, tier);
-  if (avoid.has(id) && chains.length > 1) {
-    for (let k = 1; k < chains.length; k++) {
-      const chainB = chains[(chains.indexOf(chain) + k) % chains.length]!;
-      const alt = itemIdAt(chainB, lo);
-      if (!avoid.has(alt)) {
-        chain = chainB;
-        id = alt;
-        break;
-      }
-    }
+  const ctx: ShapeCtx = { stage, slot, seed, chains, avoid };
+
+  const pool = shapePool(stage, slot, chains);
+  const picked = pool[mix(stage, slot, seed, DRAW.shape) % pool.length]!;
+  let shape: OrderShape = picked;
+  let requires: Req[] | null =
+    picked === "haul"
+      ? buildHaul(ctx)
+      : picked === "ladder"
+        ? buildLadder(ctx)
+        : picked === "assorted"
+          ? buildAssorted(ctx)
+          : picked === "pair"
+            ? buildPair(ctx)
+            : null;
+  if (!requires) {
+    shape = "fetch";
+    requires = buildFetch(ctx);
   }
+
   const who = WHO[(stage + slot) % WHO.length]!;
-  const requires: Array<{ itemId: string; count: number }> = [{ itemId: id, count: 1 }];
-  if (slot >= 2 && chains.length >= 3 && stage >= 2) {
-    const chainB = chains[(chains.indexOf(chain) + 1) % chains.length]!;
-    const idB = itemIdAt(chainB, Math.min(CHAINS[chainB].length, lo));
-    if (idB !== id && !avoid.has(idB)) {
-      requires.push({ itemId: idB, count: 1 });
-    }
-  } else if (slot === 3 && stage >= 4) {
-    requires[0]!.count = 2;
-  }
   const extra = requires.length > 1 || (requires[0]?.count ?? 1) > 1 ? 4 : 0;
   const pearls = 3 + Math.floor(stage / 3) + extra + (kind === "auto" ? 8 : 0);
   const tool = TOOL_BY_WHO[who];
   const rewardItem = slot === 3 && stage % 3 === 1 ? "chest-1" : tool;
-  const names = requires.map((r) => `${r.count > 1 ? r.count + "× " : ""}${ITEMS[r.itemId]?.name ?? "a find"}`);
+  const names = requires.map(
+    (r) => `${r.count > 1 ? r.count + "× " : ""}${ITEMS[r.itemId]?.name ?? "a find"}`,
+  );
+  const lines = SHAPE_LINES[shape];
+  const line = lines[mix(stage, slot, seed, DRAW.text) % lines.length]!;
   return {
     id: `o${stage}-${slot}-${seed}`,
     slot,
     kind,
     character: who,
     title: `${names.join(" & ")} for ${CHARACTERS[who].role.toLowerCase()}`,
-    body: `Bring ${names.join(" and ")}. ${stageName(stage)}.`,
+    body: `${line.replace("{names}", names.join(" and "))} ${stageName(stage)}.`,
     requires,
     pearls,
     xp: 10 + stage + slot + extra,
