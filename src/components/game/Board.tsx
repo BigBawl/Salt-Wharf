@@ -27,6 +27,16 @@ type DragState = {
   store: number | null;
 };
 
+/** Vibration is not sound, so this is deliberately NOT gated on sfxOn.
+ *  iOS ignores it silently, so haptics are always an extra layer, never the only cue. */
+function buzz(pattern: number | number[]) {
+  try {
+    navigator.vibrate?.(pattern);
+  } catch {
+    /* unsupported */
+  }
+}
+
 function cellFromPoint(x: number, y: number): { index: number | null; sell: boolean; store: number | null } {
   const el = document.elementFromPoint(x, y);
   const cell = el?.closest?.("[data-cell]") as HTMLElement | null;
@@ -54,6 +64,7 @@ export function Board({ needed }: { needed: Set<string> }) {
   const armedSplit = useGame((s) => s.armedSplit);
   const spawnFx = useGame((s) => s.spawnFx);
   const locked = useGame((s) => s.locked);
+  const comboCount = useGame((s) => s.comboCount);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [shake, setShake] = useState(false);
   const [now, setNow] = useState(() => Date.now());
@@ -70,6 +81,14 @@ export function Board({ needed }: { needed: Set<string> }) {
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") useGame.getState().breakCombo();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
   }, []);
 
   useEffect(() => {
@@ -151,7 +170,11 @@ export function Board({ needed }: { needed: Set<string> }) {
       if (canMerge(d.piece.itemId, target.itemId)) {
         const ok = api.mergePieces(d.from, d.over);
         if (ok) {
-          const m = useGame.getState().lastMerge;
+          const st = useGame.getState();
+          const combo = st.comboCount;
+          const m = st.lastMerge;
+          // a capstone is the biggest moment on the dock and gets its own pattern
+          buzz(m?.capstone ? [0, 20, 40, 30] : combo >= 5 && combo % 5 === 0 ? [0, 14, 30, 22] : 10);
           spawnFx({
             x: d.x,
             y: d.y,
@@ -161,6 +184,7 @@ export function Board({ needed }: { needed: Set<string> }) {
         setDrag(null);
         return;
       }
+      buzz(28);
       setShake(true);
       window.setTimeout(() => setShake(false), 280);
       setDrag(null);
@@ -225,16 +249,22 @@ export function Board({ needed }: { needed: Set<string> }) {
 
   return (
     <div className="board-stage relative mx-auto flex h-full min-h-0 w-full max-w-[520px] flex-col">
-      {luckyLeft > 0 ? (
-        <div className="mb-1 inline-flex rounded-full bg-primary px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary-fg">
+      {/* Overlays, deliberately NOT flex children. As conditional siblings above a
+          flex-1 board these resized the dock on every purchase -- the same defect
+          P3 fixed for SelectedRow. Always mounted; visibility is opacity only. */}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-start gap-1 px-1 pt-1">
+        <span className={cn("board-chip bg-primary text-primary-fg", luckyLeft > 0 && "is-on")}>
           Lucky · {luckyLeft}
-        </div>
-      ) : null}
-      {armedSplit ? (
-        <div className="mb-1 inline-flex rounded-full bg-sand px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink">
+        </span>
+        <span className={cn("board-chip bg-sand text-ink", armedSplit && "is-on")}>
           Shears armed · tap a find
-        </div>
-      ) : null}
+        </span>
+      </div>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex justify-center pt-1">
+        <span key={comboCount} className={cn("combo-hud", comboCount >= 2 && "is-on")} aria-live="off">
+          {comboCount} in a row
+        </span>
+      </div>
       <div
         className={cn(
           "board-frame flex min-h-0 flex-1 flex-col",
@@ -292,7 +322,7 @@ export function Board({ needed }: { needed: Set<string> }) {
                   "board-cell relative min-h-0 select-none",
                   !p && "is-empty",
                   tarp && "is-locked",
-                  isOver && mergeOk && "ring-2 ring-primary",
+                  isOver && mergeOk && "ring-2 ring-primary is-merge-target",
                   isOver && !mergeOk && p && "ring-2 ring-danger/80",
                   isOver && !p && "ring-2 ring-surface/70",
                   isSel && "ring-2 ring-surface/80",
