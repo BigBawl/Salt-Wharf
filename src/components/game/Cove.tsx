@@ -56,7 +56,7 @@ export function TownColumn({ className, initialFocus }: { className?: string; in
                 i > coveNode && "is-later",
                 focus === i && "is-focus",
               )}
-              style={{ left: `\( {n.x}%`, top: ` \){n.y}%` }}
+              style={{ left: `${n.x}%`, top: `${n.y}%` }}
               onClick={() => setFocus(i)}
               aria-label={n.name}
             >
