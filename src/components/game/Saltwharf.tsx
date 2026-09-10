@@ -56,6 +56,8 @@ import {
   ENERGY_MAX,
   canFillOrder,
   canPayStep,
+  conditionLine,
+  conditionMet,
   dailyComplete,
   energyWaitSec,
   neededFromOrders,
@@ -281,7 +283,7 @@ function GameScreen() {
                 <div
                   className="h-full rounded-full bg-primary transition-[width] duration-300"
                   style={{
-                    width: Math.min(100, xpBar.need > 0 && Number.isFinite(xpBar.have) ? (xpBar.have / xpBar.need) * 100 : 0) + "%",
+                    width: `${Math.min(100, xpBar.need > 0 && Number.isFinite(xpBar.have) ? (xpBar.have / xpBar.need) * 100 : 0)}%`,
                   }}
                 />
               </div>
@@ -331,6 +333,8 @@ function GameScreen() {
             <Board needed={needed} />
           </div>
           <StorageRow />
+          {/* Fixed slot: SelectedRow mounts and unmounts as you tap finds. Without a
+              reserved height the board (flex-1) resizes on every selection. */}
           <div className="min-h-16 shrink-0">
             <SelectedRow def={selDef} index={selected} />
           </div>
@@ -405,12 +409,13 @@ function ToastRail({
           )}
         >
           {t.text}
-          {(t.count ?? 1) > 1 ? " · ×" + t.count : ""}
+          {(t.count ?? 1) > 1 ? ` · ×${t.count}` : ""}
         </div>
       ))}
     </div>
   );
 }
+
 function WorkChip({ canPay, onOpen }: { canPay: boolean; onOpen: () => void }) {
   const coveNode = useGame((s) => s.coveNode);
   const coveStep = useGame((s) => s.coveStep);
@@ -422,7 +427,7 @@ function WorkChip({ canPay, onOpen }: { canPay: boolean; onOpen: () => void }) {
     <div className="work-chip">
       <button type="button" onClick={onOpen} className="work-chip-main">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-energy">
-          {node ? "Restore · " + (coveStep + 1) + "/" + node.steps.length : "Harbor Lights"}
+          {node ? `Restore · ${coveStep + 1}/${node.steps.length}` : "Harbor Lights"}
         </p>
         <p className="truncate font-display text-sm italic leading-tight">{node?.name ?? "The cove is lit"}</p>
         <p className="truncate text-[10px] text-fog">
@@ -447,6 +452,7 @@ function WorkChip({ canPay, onOpen }: { canPay: boolean; onOpen: () => void }) {
 
 function OrderStrip({ awaitingGate }: { awaitingGate: boolean }) {
   const orders = useGame((s) => s.orders);
+  const discovered = useGame((s) => s.discovered);
   const visitor = useGame((s) => s.visitor);
   const gameStage = useGame((s) => s.stage);
   const board = useGame((s) => s.board);
@@ -486,6 +492,9 @@ function OrderStrip({ awaitingGate }: { awaitingGate: boolean }) {
           const who = CHARACTERS[order.character];
           const ready = canFillOrder(board, storage, order, locked);
           const reward = order.rewardItem;
+          // A condition is a bonus, never a gate: `ready` above is unaffected by it.
+          const bonusLine = conditionLine(order);
+          const bonusEarned = conditionMet(order, discovered);
           return (
             <section key={order.id} className={cn("order-chip", ready && "is-ready")}>
               <img
@@ -519,6 +528,20 @@ function OrderStrip({ awaitingGate }: { awaitingGate: boolean }) {
                   <span className="text-[10px] text-fog tabular-nums">+{order.pearls}</span>
                   {reward ? <ItemArt itemId={reward} className="size-3.5" /> : null}
                 </div>
+                {bonusLine ? (
+                  <p
+                    className={cn(
+                      "mt-0.5 truncate text-[10px] italic",
+                      bonusEarned ? "text-energy" : "text-fog",
+                    )}
+                  >
+                    {bonusLine}
+                    {order.condition?.kind === "streak"
+                      ? ` · ${Math.min(order.progress?.best ?? 0, order.condition.need)}/${order.condition.need}`
+                      : ""}
+                    {` · +${order.bonus ?? 0}`}
+                  </p>
+                ) : null}
               </div>
               <Button
                 size="sm"
@@ -636,18 +659,18 @@ function SelectedRow({
         <p className="line-clamp-1 text-xs text-fog">
           {def.kind === "generator" && clock
             ? waitSec > 0
-              ? "Resting · " + waitSec + "s"
-              : clock.charges + " charges"
+              ? `Resting · ${waitSec}s`
+              : `${clock.charges} charges`
             : onOrder
             ? "Wanted on an order"
             : nextId
-            ? "Merges into " + (item(nextId)?.name ?? "the next") + " · double-tap sells"
-            : def.blurb + " · double-tap sells"}
+            ? `Merges into ${item(nextId)?.name ?? "the next"} · double-tap sells`
+            : `${def.blurb} · double-tap sells`}
         </p>
       </div>
       {def.kind === "generator" ? (
         <Button size="sm" onClick={() => tapGenerator(index)} disabled={Boolean(clock && clock.charges < 1)}>
-          {waitSec > 0 ? waitSec + "s" : "Gather"}
+          {waitSec > 0 ? `${waitSec}s` : "Gather"}
         </Button>
       ) : def.kind === "consumable" ? (
         <Button size="sm" onClick={() => useConsumable(index)}>
@@ -703,7 +726,7 @@ function StorageRow() {
             data-store={i}
             onClick={() => p && storeToBoard(i)}
             className="store-slot grid size-9 shrink-0 place-items-center rounded-md bg-bg ring-1 ring-ink/10 sm:size-11"
-            aria-label={p ? item(p.itemId)?.name ?? "Stored" : "Empty cupboard " + (i + 1)}
+            aria-label={p ? item(p.itemId)?.name ?? "Stored" : `Empty cupboard ${i + 1}`}
           >
             {p ? <ItemArt itemId={p.itemId} className="size-[85%]" /> : null}
           </button>
@@ -725,6 +748,7 @@ function StorageRow() {
     </div>
   );
 }
+
 function ShopPanel() {
   const pearls = useGame((s) => s.pearls);
   const cosmetics = useGame((s) => s.cosmetics);
@@ -769,7 +793,7 @@ function ShopPanel() {
         })}
       </div>
       <p className="mt-3 mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-energy">
-        A little luck{luckyLeft > 0 ? " · " + luckyLeft : ""}
+        A little luck{luckyLeft > 0 ? ` · ${luckyLeft}` : ""}
       </p>
       <div className="flex flex-col gap-1.5">
         {BOOSTS.map((boost) => {
@@ -953,7 +977,7 @@ function InboxPanel({ onClose }: { onClose: () => void }) {
         <>
           <ul className="flex flex-col gap-1.5">
             {visible.map((id, i) => (
-              <li key={id + "-" + i} className="flex items-center gap-2 rounded-lg bg-bg-deep px-2 py-1.5">
+              <li key={`${id}-${i}`} className="flex items-center gap-2 rounded-lg bg-bg-deep px-2 py-1.5">
                 <ItemArt itemId={id} className="size-8" />
                 <span className="min-w-0 flex-1 truncate text-sm">{item(id)?.name ?? id}</span>
                 {i === 0 ? <span className="text-[10px] uppercase tracking-wide text-energy">Next</span> : null}
@@ -1007,7 +1031,7 @@ function SettingsPanel({ onClose }: { onClose: () => void }) {
         {keepLog.length ? (
           <ul className="mt-2 space-y-1 text-[11px] text-surface/80">
             {keepLog.slice(-8).reverse().map((n, i) => (
-              <li key={n.topic + "-" + n.at + "-" + i} className="flex items-start gap-2">
+              <li key={`${n.topic}-${n.at}-${i}`} className="flex items-start gap-2">
                 <span
                   className={cn(
                     "mt-0.5 shrink-0 text-[9px] font-semibold uppercase tracking-wider",
@@ -1141,4 +1165,4 @@ function WinModal() {
       </div>
     </div>
   );
-  }
+}
