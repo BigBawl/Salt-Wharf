@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { useGame, flushSave } from "./store.ts";
 import { BOARD_SIZE, DELIVERIES_PER_STAGE, ITEMS, SAVE_KEY, SAVE_VERSION, piece } from "./catalog.ts";
-import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, takeFromPools, tierBand } from "./loop.ts";
+import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand } from "./loop.ts";
 import { CHAINS, type PlayChain } from "./catalog.ts";
 import { healSave, applyKeepScan } from "./watch.ts";
 
@@ -873,6 +873,37 @@ describe("saltwharf orders", () => {
           }
         }
       }
+    }
+  });
+
+  it("shapes survive a realistic avoid set", () => {
+    // The other tests build orders with an EMPTY avoid set, which only happens
+    // for the very first four orders of a save. In play, replaceOrder passes the
+    // three sibling slots' items as `avoid`. Assorted and Pair used to pin every
+    // item to its chain floor, so they collided constantly and fell back to
+    // Fetch -- about 30% of all shapes, and half of every Assorted, vanished
+    // silently. The suite passed the whole time. This is that test.
+    for (const stage of [20, 22, 26, 40, 60]) {
+      let orders = seedOrders(stage, ALL_CHAINS);
+      let intended = 0;
+      let lost = 0;
+      const window = orderWindow(ALL_CHAINS);
+      for (let seed = 5; seed < 200; seed++) {
+        const slot = seed % ORDER_SLOTS;
+        const avoid = new Set(
+          orders.filter((o) => o.slot !== slot).flatMap((o) => o.requires.map((r) => r.itemId)),
+        );
+        const pool = shapePool(stage, slot, window);
+        const want = pool[mix(stage, slot, seed, DRAW.shape) % pool.length]!;
+        const got = classify(makeLiveOrder({ stage, slot, seed, avoid, unlocked: ALL_CHAINS }).requires);
+        if (want !== "fetch") {
+          intended += 1;
+          if (got === "fetch") lost += 1;
+        }
+        orders = replaceOrder(orders, slot, stage, seed, ALL_CHAINS);
+      }
+      const rate = lost / intended;
+      assert.ok(rate <= 0.15, `stage ${stage}: ${Math.round(rate * 100)}% of shapes fell back to fetch`);
     }
   });
 

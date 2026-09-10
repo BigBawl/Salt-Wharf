@@ -452,10 +452,15 @@ function buildAssorted(ctx: ShapeCtx): Req[] | null {
   const used = new Set<string>();
   for (let k = 0; k < chains.length && out.length < 3; k++) {
     const ch = chains[(start + k) % chains.length]!;
-    const id = itemIdAt(ch, tierBand(stage, slot, ch).lo);
-    if (avoid.has(id) || used.has(id)) continue;
-    used.add(id);
-    out.push({ itemId: id, count: 1 });
+    const b = tierBand(stage, slot, ch);
+    let picked: string | null = null;
+    for (let d = 0; d <= b.hi - b.lo; d++) {
+      const id = itemIdAt(ch, b.lo + ((mix(stage, slot, seed + k, DRAW.tier) + d) % (b.hi - b.lo + 1)));
+      if (!avoid.has(id) && !used.has(id)) { picked = id; break; }
+    }
+    if (!picked) continue;
+    used.add(picked);
+    out.push({ itemId: picked, count: 1 });
   }
   return out.length === 3 ? out : null;
 }
@@ -469,10 +474,15 @@ function buildPair(ctx: ShapeCtx): Req[] | null {
   const used = new Set<string>();
   for (let k = 0; k < chains.length && out.length < 2; k++) {
     const ch = chains[(start + k) % chains.length]!;
-    const id = itemIdAt(ch, tierBand(stage, slot, ch).lo);
-    if (avoid.has(id) || used.has(id)) continue;
-    used.add(id);
-    out.push({ itemId: id, count: 2 });
+    const b = tierBand(stage, slot, ch);
+    let picked: string | null = null;
+    for (let d = 0; d <= b.hi - b.lo; d++) {
+      const id = itemIdAt(ch, b.lo + ((mix(stage, slot, seed + k, DRAW.second) + d) % (b.hi - b.lo + 1)));
+      if (!avoid.has(id) && !used.has(id)) { picked = id; break; }
+    }
+    if (!picked) continue;
+    used.add(picked);
+    out.push({ itemId: picked, count: 2 });
   }
   return out.length === 2 ? out : null;
 }
