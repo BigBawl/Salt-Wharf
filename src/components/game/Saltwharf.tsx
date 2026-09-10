@@ -58,6 +58,7 @@ import {
   canPayStep,
   conditionLine,
   conditionMet,
+  starSubstitutes,
   dailyComplete,
   energyWaitSec,
   neededFromOrders,
@@ -448,6 +449,12 @@ function WorkChip({ canPay, onOpen }: { canPay: boolean; onOpen: () => void }) {
       ) : null}
     </div>
   );
+}
+
+/** A chain's row in the Finds book: its tiers plus the two starred grades past the capstone. */
+function chainBookIds(chain: PlayChain): string[] {
+  const ids = CHAINS[chain];
+  return [...ids, ...starSubstitutes(ids[ids.length - 1]!)];
 }
 
 function OrderStrip({ awaitingGate }: { awaitingGate: boolean }) {
@@ -881,7 +888,7 @@ function JournalPanel() {
           </p>
           {!open && hint ? <p className="mb-1.5 text-[11px] text-fog">{hint}</p> : null}
           <div className="grid grid-cols-6 gap-1.5">
-            {CHAINS[chain].map((id) => {
+            {chainBookIds(chain).map((id) => {
               const seen = open && known.has(id);
               const def = ITEMS[id];
               return (

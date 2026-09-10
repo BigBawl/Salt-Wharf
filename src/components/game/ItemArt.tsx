@@ -136,6 +136,15 @@ export function ItemArt({
     setOk(true);
   }, [itemId]);
   if (!def) return null;
+  // Starred grades have no artwork of their own: they reuse the capstone's PNG,
+  // tinted, with a pip per grade. Filters are inline so the whole feature stays
+  // out of styles.css.
+  const starFilter =
+    def.star === 2
+      ? "brightness(1.2) saturate(1.5) hue-rotate(-8deg)"
+      : def.star === 1
+        ? "brightness(1.12) saturate(1.25)"
+        : undefined;
   return (
     <span className={cn("relative grid place-items-center overflow-hidden", className)}>
       {ok ? (
@@ -143,6 +152,7 @@ export function ItemArt({
           src={def.src}
           alt={alt ?? ""}
           draggable={false}
+          style={starFilter ? { filter: starFilter } : undefined}
           className="h-full w-full object-contain pointer-events-none select-none"
           onError={() => {
             setOk(false);
@@ -152,6 +162,14 @@ export function ItemArt({
       ) : (
         <Glyph itemId={itemId} />
       )}
+      {def.star ? (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute right-0 top-0 text-[7px] leading-none tracking-tighter text-energy"
+        >
+          {def.star === 2 ? "\u2726\u2726" : "\u2726"}
+        </span>
+      ) : null}
     </span>
   );
 }
