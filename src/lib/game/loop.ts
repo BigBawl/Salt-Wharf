@@ -36,10 +36,45 @@ export const INBOX_CAP = 24;
 
 export type ToolId = "hammer" | "paint" | "lamp";
 
+/**
+ * A condition is a BONUS, never a gate. There is no reroll and no skip in this
+ * game: an order holds its slot until it is delivered. A condition that gated
+ * delivery and could go permanently false -- thrift, the first time the player
+ * sells -- would soft-lock one of four dock slots for the rest of the run.
+ * So the items always deliver the order; meeting the condition pays extra.
+ */
+export type OrderCondition =
+  | { kind: "deep"; itemId: string }
+  | { kind: "thrift" }
+  | { kind: "streak"; need: number };
+
 export type LiveOrder = TaskDef & {
   slot: number;
   kind: "resident" | "auto";
+  /** absent on every order written before 2b, which is why it must stay optional */
+  condition?: OrderCondition;
+  progress?: { clean?: boolean; best?: number };
+  bonus?: number;
 };
+
+export const CONDITION_BONUS = 6;
+
+/** Absent condition counts as met; the bonus is 0 either way, so old orders are unaffected. */
+export function conditionMet(order: LiveOrder, discovered: readonly string[]): boolean {
+  const c = order.condition;
+  if (!c) return true;
+  if (c.kind === "deep") return discovered.includes(c.itemId);
+  if (c.kind === "thrift") return order.progress?.clean !== false;
+  return (order.progress?.best ?? 0) >= c.need;
+}
+
+export function conditionLine(order: LiveOrder): string | null {
+  const c = order.condition;
+  if (!c) return null;
+  if (c.kind === "deep") return `and a ${ITEMS[c.itemId]?.name ?? "find"} you have never made`;
+  if (c.kind === "thrift") return "without selling anything first";
+  return `land a run of ${c.need} merges while it waits`;
+}
 
 export type Bubble = {
   id: string;
@@ -311,7 +346,7 @@ function itemIdAt(chain: PlayChain, tier: number): string {
  * the four dock slots to one tier each for stages 20-24 and to two tiers each from
  * stage 45 to the end of the game.
  */
-export const DRAW = { shape: 1, tier: 2, chain: 3, second: 4, text: 5 } as const;
+export const DRAW = { shape: 1, tier: 2, chain: 3, second: 4, text: 5, cond: 6, condKind: 7, condArg: 8 } as const;
 export type DrawKind = (typeof DRAW)[keyof typeof DRAW];
 
 export function mix(a: number, b: number, c: number, d: DrawKind): number {
@@ -511,8 +546,9 @@ export function makeLiveOrder(args: {
   unlocked: readonly PlayChain[];
   kind?: "resident" | "auto";
   forceId?: string;
+  discovered?: readonly string[];
 }): LiveOrder {
-  const { stage, slot, seed, avoid, unlocked, kind = "resident", forceId } = args;
+  const { stage, slot, seed, avoid, unlocked, kind = "resident", forceId, discovered = [] } = args;
   if (kind === "auto" && forceId) {
     const def = ITEMS[forceId];
     return {
@@ -560,6 +596,52 @@ export function makeLiveOrder(args: {
   );
   const lines = SHAPE_LINES[shape];
   const line = lines[mix(stage, slot, seed, DRAW.text) % lines.length]!;
+
+  // Roughly one order in four carries a condition, on its own draw domain so it
+  // does not correlate with shape, tier, chain or text.
+  let condition: OrderCondition | undefined;
+  if (mix(stage, slot, seed, DRAW.cond) % 4 === 0) {
+    // Order matters. Thrift and streak are always evaluable; deep is opportunistic
+    // and comes up empty for a player who has already made everything in reach.
+    // So the reliable ones open first and deep layers on as spice -- otherwise
+    // stages 14-19 had deep as the only kind and produced no conditions at all.
+    const kinds: Array<OrderCondition["kind"]> = [];
+    if (stage >= 14) kinds.push("thrift");
+    if (stage >= 18) kinds.push("streak");
+    if (stage >= 20) kinds.push("deep");
+    if (kinds.length) {
+      const start = mix(stage, slot, seed, DRAW.condKind) % kinds.length;
+      // Try the picked kind, then the others in turn. Deep can legitimately come
+      // up empty -- if the player has already made everything in range there is
+      // nothing new to ask for -- and a silent drop there cost 2b most of its
+      // conditions in play-testing: 7 of 312 orders carried one instead of ~1 in 4.
+      for (let k = 0; k < kinds.length && !condition; k++) {
+        const pick = kinds[(start + k) % kinds.length]!;
+        if (pick === "deep") {
+          const ch = primaryChain(ctx);
+          const b = tierBand(stage, slot, ch);
+          const have = new Set(discovered);
+          // Search from two tiers ABOVE the band ceiling. Everything inside the
+          // band is what the orders already ask for, so by the time deep unlocks
+          // the player has made all of it and a band-only search finds nothing.
+          // hi+2 is a genuine "go one deeper" ask and still inside the chain.
+          const top = Math.min(CHAINS[ch].length, b.hi + 2);
+          for (let t = top; t >= b.lo; t--) {
+            const id = itemIdAt(ch, t);
+            if (!have.has(id)) {
+              condition = { kind: "deep", itemId: id };
+              break;
+            }
+          }
+        } else if (pick === "thrift") {
+          condition = { kind: "thrift" };
+        } else {
+          condition = { kind: "streak", need: 4 + (mix(stage, slot, seed, DRAW.condArg) % 3) };
+        }
+      }
+    }
+  }
+
   return {
     id: `o${stage}-${slot}-${seed}`,
     slot,
@@ -571,14 +653,19 @@ export function makeLiveOrder(args: {
     pearls,
     xp: 10 + stage + slot + extra,
     rewardItem,
+    ...(condition ? { condition, bonus: CONDITION_BONUS } : {}),
   };
 }
 
-export function seedOrders(stage: number, unlocked: readonly PlayChain[] = STARTER_UNLOCKED): LiveOrder[] {
+export function seedOrders(
+  stage: number,
+  unlocked: readonly PlayChain[] = STARTER_UNLOCKED,
+  discovered: readonly string[] = [],
+): LiveOrder[] {
   const avoid = new Set<string>();
   const out: LiveOrder[] = [];
   for (let slot = 0; slot < ORDER_SLOTS; slot++) {
-    const o = makeLiveOrder({ stage, slot, seed: slot + 1, avoid, unlocked });
+    const o = makeLiveOrder({ stage, slot, seed: slot + 1, avoid, unlocked, discovered });
     for (const r of o.requires) avoid.add(r.itemId);
     out.push(o);
   }
@@ -591,11 +678,12 @@ export function replaceOrder(
   stage: number,
   seed: number,
   unlocked: readonly PlayChain[] = STARTER_UNLOCKED,
+  discovered: readonly string[] = [],
 ): LiveOrder[] {
   const avoid = new Set(
     orders.filter((o) => o.slot !== slot).flatMap((o) => o.requires.map((r) => r.itemId)),
   );
-  const next = makeLiveOrder({ stage, slot, seed, avoid, unlocked });
+  const next = makeLiveOrder({ stage, slot, seed, avoid, unlocked, discovered });
   return orders.map((o) => (o.slot !== slot ? o : next));
 }
 

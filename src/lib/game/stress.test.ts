@@ -5,7 +5,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { useGame, flushSave } from "./store.ts";
 import { BOARD_SIZE, DELIVERIES_PER_STAGE, ITEMS, SAVE_KEY, SAVE_VERSION, piece } from "./catalog.ts";
-import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand } from "./loop.ts";
+import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, type OrderCondition } from "./loop.ts";
 import { CHAINS, type PlayChain } from "./catalog.ts";
 import { healSave, applyKeepScan } from "./watch.ts";
 
@@ -922,5 +922,277 @@ describe("saltwharf orders", () => {
     const after = takeFromPools(board, storage, legacy, []);
     assert.equal(after.board.filter(Boolean).length, 0, "the pieces must be consumed");
     assert.equal(SAVE_VERSION, 9, "order shapes must not force a SAVE_VERSION bump");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2b -- conditions.
+//
+// The governing rule: a condition is a BONUS, never a gate. This game has no
+// reroll and no skip, so an order holds its slot until delivered. A gating
+// condition that can go permanently false -- thrift, the first time a player
+// sells -- would soft-lock a dock slot for the rest of the run. Test 1 below is
+// that guarantee, and it is the most important test in this file.
+// ---------------------------------------------------------------------------
+
+describe("saltwharf conditions", () => {
+  /** Put one order with a known condition into slot 0 and hold exactly its items. */
+  function stage(condition: OrderCondition | undefined, itemId = "tide-1", count = 1) {
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+    const s = useGame.getState();
+    const board = s.board.slice();
+    const free = board.map((p, i) => (!p && !s.locked.includes(i) ? i : -1)).filter((i) => i >= 0);
+    for (let k = 0; k < count; k++) board[free[k]!] = piece(itemId);
+    const order = {
+      ...s.orders[0]!,
+      id: `test-${Math.random()}`,
+      requires: [{ itemId, count }],
+      pearls: 10,
+      xp: 5,
+      rewardItem: undefined,
+      ...(condition ? { condition, bonus: CONDITION_BONUS } : {}),
+    };
+    const orders = s.orders.map((o) => (o.slot === 0 ? order : o));
+    useGame.setState({ board, orders, pearls: 0 });
+    return order;
+  }
+
+  it("a condition never blocks delivery", () => {
+    // Every kind, deliberately unmet. All four must still deliver.
+    const kinds: OrderCondition[] = [
+      { kind: "deep", itemId: "tide-9" },
+      { kind: "thrift" },
+      { kind: "streak", need: 5 },
+    ];
+    for (const c of kinds) {
+      stage(c);
+      assert.equal(useGame.getState().deliver(0), true, `${c.kind} must not gate delivery`);
+    }
+  });
+
+  it("selling cannot strand a thrift order", () => {
+    stage({ kind: "thrift" }, "tide-1", 1);
+    // sell something unrelated, which forfeits the bonus
+    const s = useGame.getState();
+    const spare = s.board.findIndex(
+      (p, i) => p && p.itemId !== "tide-1" && !s.locked.includes(i) && ITEMS[p.itemId]?.kind !== "generator",
+    );
+    if (spare >= 0) useGame.getState().sellAt(spare, { confirmed: true });
+    const before = useGame.getState().pearls;
+    assert.equal(useGame.getState().deliver(0), true, "a sold-on thrift order must still deliver");
+    const gained = useGame.getState().pearls - before;
+    assert.equal(gained, 10, `bonus must be withheld, got ${gained}`);
+  });
+
+  it("the bonus is paid only when the condition is met", () => {
+    stage({ kind: "thrift" });
+    let before = useGame.getState().pearls;
+    useGame.getState().deliver(0);
+    assert.equal(useGame.getState().pearls - before, 10 + CONDITION_BONUS, "clean thrift pays the bonus");
+
+    stage({ kind: "streak", need: 3 });
+    before = useGame.getState().pearls;
+    useGame.getState().deliver(0);
+    assert.equal(useGame.getState().pearls - before, 10, "an unmet streak pays no bonus");
+
+    stage(undefined);
+    before = useGame.getState().pearls;
+    useGame.getState().deliver(0);
+    assert.equal(useGame.getState().pearls - before, 10, "an order with no condition pays no bonus");
+  });
+
+  it("thrift clears on selling and on nothing else", () => {
+    stage({ kind: "thrift" });
+    const clean = () => useGame.getState().orders.find((o) => o.slot === 0)!.progress?.clean;
+    assert.notEqual(clean(), false, "starts clean");
+
+    const s = useGame.getState();
+    const gen = s.board.findIndex((p) => p && ITEMS[p.itemId]?.kind === "generator");
+    if (gen >= 0) useGame.getState().tapGenerator(gen);
+    assert.notEqual(clean(), false, "gathering must not clear thrift");
+
+    const t = useGame.getState();
+    const idx = t.board.findIndex(
+      (p, i) => p && !t.locked.includes(i) && ITEMS[p.itemId]?.kind !== "generator" && p.itemId !== "tide-1",
+    );
+    assert.ok(idx >= 0, "need something sellable");
+    assert.equal(useGame.getState().sellAt(idx, { confirmed: true }), true);
+    assert.equal(clean(), false, "selling must clear thrift");
+  });
+
+  it("streak records the best run seen, not the current one", () => {
+    stage({ kind: "streak", need: 3 });
+    const best = () => useGame.getState().orders.find((o) => o.slot === 0)!.progress?.best ?? 0;
+    const seed = (id: string) => {
+      const s = useGame.getState();
+      const free = s.board.map((p, i) => (!p && !s.locked.includes(i) ? i : -1)).filter((i) => i >= 0);
+      const board = s.board.slice();
+      board[free[0]!] = piece(id);
+      board[free[1]!] = piece(id);
+      useGame.setState({ board });
+      return [free[0]!, free[1]!] as const;
+    };
+    for (let k = 0; k < 3; k++) {
+      const [a, b] = seed("hearth-1");
+      useGame.getState().mergePieces(a, b);
+    }
+    assert.equal(best(), 3, "three chained merges must record 3");
+    useGame.getState().breakCombo();
+    const [a, b] = seed("hearth-1");
+    useGame.getState().mergePieces(a, b);
+    assert.equal(useGame.getState().comboCount, 1, "the live streak restarted");
+    assert.equal(best(), 3, "the order must keep the BEST run, not the current one");
+  });
+
+  it("streak progress is inside the order, so it survives a reload", () => {
+    stage({ kind: "streak", need: 3 });
+    const seedTwo = () => {
+      const s = useGame.getState();
+      const free = s.board.map((p, i) => (!p && !s.locked.includes(i) ? i : -1)).filter((i) => i >= 0);
+      const board = s.board.slice();
+      board[free[0]!] = piece("hearth-1");
+      board[free[1]!] = piece("hearth-1");
+      useGame.setState({ board });
+      return [free[0]!, free[1]!] as const;
+    };
+    const [a, b] = seedTwo();
+    useGame.getState().mergePieces(a, b);
+    flushSave();
+    const raw = JSON.parse(localStorage.getItem(SAVE_KEY)!);
+    const saved = raw.orders.find((o: { slot: number }) => o.slot === 0);
+    assert.equal(saved.progress?.best, 1, "streak progress must be written into the save");
+    assert.equal(saved.condition?.kind, "streak", "the condition must persist too");
+  });
+
+  it("deep targets something undiscovered and reachable", () => {
+    const chains = UNLOCK_ORDER.slice() as PlayChain[];
+    for (const stageNo of [14, 20, 30, 60, 100]) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 60; seed++) {
+          const known = ["tide-1", "tide-2", "hearth-1"];
+          const o = makeLiveOrder({
+            stage: stageNo, slot, seed, avoid: new Set<string>(),
+            unlocked: chains, discovered: known,
+          });
+          if (o.condition?.kind !== "deep") continue;
+          const id = o.condition.itemId;
+          assert.ok(!known.includes(id), `deep targeted a known item ${id}`);
+          assert.ok(ITEMS[id], `deep targeted a non-item ${id}`);
+          const ch = id.slice(0, id.lastIndexOf("-")) as PlayChain;
+          const b = tierBand(stageNo, slot, ch);
+          const t = Number(id.slice(id.lastIndexOf("-") + 1));
+          // Deep deliberately reaches two tiers past the band ceiling: everything
+          // inside the band is already made by the time it unlocks. Safe precisely
+          // because it is a bonus -- an unmet deep still delivers on its items.
+          const reach = Math.min(CHAINS[ch].length, b.hi + 2);
+          assert.ok(t <= reach, `deep asked tier ${t} beyond its reach ${reach}`);
+          assert.ok(t >= b.lo, `deep asked tier ${t} below the floor ${b.lo}`);
+          assert.ok(t <= CHAINS[ch].length, `deep asked past the chain cap`);
+        }
+      }
+    }
+  });
+
+  it("deep completes when the target is discovered by any route", () => {
+    const order = { slot: 0, kind: "resident" as const, id: "x", character: "mae" as const,
+      title: "t", body: "b", requires: [{ itemId: "tide-1", count: 1 }], pearls: 1, xp: 1,
+      condition: { kind: "deep" as const, itemId: "tide-5" }, bonus: CONDITION_BONUS };
+    assert.equal(conditionMet(order, ["tide-1"]), false);
+    assert.equal(conditionMet(order, ["tide-1", "tide-5"]), true);
+  });
+
+  it("the condition draw does not correlate with any other draw", () => {
+    const others = [DRAW.shape, DRAW.tier, DRAW.chain, DRAW.second, DRAW.text];
+    for (const stageNo of [20, 30, 60]) {
+      for (const a of [DRAW.cond, DRAW.condKind, DRAW.condArg]) {
+        for (const b of others) {
+          for (let modA = 3; modA <= 6; modA++) {
+            for (let modB = 3; modB <= 6; modB++) {
+              const seen = new Map<number, Set<number>>();
+              for (let seed = 1; seed <= 600; seed++) {
+                const x = mix(stageNo, 0, seed, a) % modA;
+                const y = mix(stageNo, 0, seed, b) % modB;
+                if (!seen.has(x)) seen.set(x, new Set());
+                seen.get(x)!.add(y);
+              }
+              for (const [x, ys] of seen) {
+                assert.equal(ys.size, modB, `domain ${a} vs ${b} froze at x=${x}`);
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  it("conditions stay off the early reaches and unlock in order", () => {
+    const chains = UNLOCK_ORDER.slice() as PlayChain[];
+    const kindsAt = (stageNo: number) => {
+      const out = new Set<string>();
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 300; seed++) {
+          const c = makeLiveOrder({ stage: stageNo, slot, seed, avoid: new Set<string>(), unlocked: chains, discovered: [] }).condition;
+          if (c) out.add(c.kind);
+        }
+      }
+      return out;
+    };
+    assert.equal(kindsAt(10).size, 0, "no conditions before stage 14");
+    assert.ok(kindsAt(16).has("thrift"), "thrift is the baseline and must be live by 16");
+    assert.ok(!kindsAt(16).has("streak"), "streak must wait for 18");
+    assert.ok(kindsAt(19).has("streak"), "streak must be live by 19");
+    assert.ok(kindsAt(30).has("deep"), "deep must be live by 30 when there is something new to make");
+  });
+
+  it("a 2a-era order with no condition still delivers and pays no bonus", () => {
+    // The exact shape a save written before 2b holds: no `condition`, no `progress`.
+    const legacy = {
+      id: "o5-0-1", slot: 0, kind: "resident" as const, character: "mae" as const,
+      title: "Sea Glass for the inn", body: "Bring Sea Glass.",
+      requires: [{ itemId: "tide-1", count: 1 }], pearls: 10, xp: 15,
+    };
+    assert.equal(conditionMet(legacy, []), true, "no condition must read as met, never as blocked");
+    assert.equal(legacy.bonus ?? 0, 0, "and must pay nothing extra");
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+    const s = useGame.getState();
+    const board = s.board.slice();
+    const free = board.map((p, i) => (!p && !s.locked.includes(i) ? i : -1)).filter((i) => i >= 0);
+    board[free[0]!] = piece("tide-1");
+    useGame.setState({ board, orders: s.orders.map((o) => (o.slot === 0 ? legacy : o)), pearls: 0 });
+    assert.equal(useGame.getState().deliver(0), true, "a legacy order must deliver");
+    assert.equal(useGame.getState().pearls, 10, "and pay exactly its face value");
+  });
+
+  it("conditions actually appear when the player has already made the band", () => {
+    // The play-test bug: deep searched only inside the band, but by the time it
+    // unlocks the player has made everything in there, so it silently produced
+    // nothing -- and nothing else was tried. 7 of 312 orders carried a condition
+    // instead of roughly 1 in 4. Simulate a well-explored save and demand a rate.
+    const chains = UNLOCK_ORDER.slice() as PlayChain[];
+    const wellExplored: string[] = [];
+    for (const ch of chains) for (const id of CHAINS[ch]) wellExplored.push(id);
+    for (const stageNo of [16, 22, 30, 60]) {
+      let withCond = 0;
+      let total = 0;
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 250; seed++) {
+          total += 1;
+          // everything discovered EXCEPT the very top of each chain
+          const known = wellExplored.filter((id) => Number(id.slice(id.lastIndexOf("-") + 1)) < 9);
+          const o = makeLiveOrder({ stage: stageNo, slot, seed, avoid: new Set<string>(), unlocked: chains, discovered: known });
+          if (o.condition) withCond += 1;
+        }
+      }
+      const rate = withCond / total;
+      assert.ok(rate >= 0.2, `stage ${stageNo}: only ${Math.round(rate * 100)}% of orders carried a condition`);
+    }
+  });
+
+  it("conditions force no save migration", () => {
+    assert.equal(SAVE_VERSION, 9, "optional nested fields must not need a version bump");
   });
 });

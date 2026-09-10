@@ -79,6 +79,7 @@ import {
   type LiveOrder,
   type UndoSell,
   INBOX_CAP,
+  conditionMet,
 } from "./loop";
 import { healSave, keepLine, scanOverlays, applyKeepScan, normalizeKeepLetter, normalizeKeepNote, type KeepLetter, type KeepNote } from "./watch";
 import { sfx } from "./audio";
@@ -445,6 +446,30 @@ function play(s: GameState, fn: () => void) {
   if (s.sfxOn) fn();
 }
 
+/**
+ * Condition bookkeeping. Both helpers return the SAME array reference when
+ * nothing changed, so an ordinary sell or merge does not churn the save.
+ */
+function clearThrift(orders: LiveOrder[]): LiveOrder[] {
+  let touched = false;
+  const next = orders.map((o) => {
+    if (o.condition?.kind !== "thrift" || o.progress?.clean === false) return o;
+    touched = true;
+    return { ...o, progress: { ...o.progress, clean: false } };
+  });
+  return touched ? next : orders;
+}
+
+function recordStreak(orders: LiveOrder[], combo: number): LiveOrder[] {
+  let touched = false;
+  const next = orders.map((o) => {
+    if (o.condition?.kind !== "streak" || (o.progress?.best ?? 0) >= combo) return o;
+    touched = true;
+    return { ...o, progress: { ...o.progress, best: combo } };
+  });
+  return touched ? next : orders;
+}
+
 function withDaily(s: SaveSlice, field: "orders" | "merges" | "nodes", now = Date.now()): {
   dailyDay: string;
   daily: DailyProgress;
@@ -662,6 +687,7 @@ export const useGame = create<GameState>((set, get) => ({
       selected: to,
       merges,
       discovered: prizeId ? discover(discovered, prizeId) : discovered,
+      orders: recordStreak(s.orders, comboCount),
       popUid: merged.uid,
       comboCount,
       comboLastAt: comboAt,
@@ -810,6 +836,9 @@ export const useGame = create<GameState>((set, get) => ({
     const next = {
       board,
       pearls,
+      // A thrift order forfeits its bonus the moment anything is sold. It still
+      // delivers on its items -- the condition is never a gate.
+      orders: clearThrift(s.orders),
       selected: null,
       undo: { index, piece: p, pearlsSpent: def.sell },
       bubbles: s.bubbles.filter((b) => b.cell !== index),
@@ -867,6 +896,7 @@ export const useGame = create<GameState>((set, get) => ({
       inbox = placed.inbox;
       discovered = discover(discovered, order.rewardItem);
     }
+    const bonusPaid = conditionMet(order, s.discovered) ? (order.bonus ?? 0) : 0;
     const taskIndex = s.taskIndex + 1;
     const lastStageDone = s.stage >= STAGE_COUNT - 1 && taskIndex >= STAGE_COUNT * DELIVERIES_PER_STAGE;
     const xp = s.xp + order.xp;
@@ -874,12 +904,12 @@ export const useGame = create<GameState>((set, get) => ({
     const nextLevel = levelFromXp(xp);
     const orderSeed = s.orderSeed + 1;
     let stage = s.stage;
-    let orders = replaceOrder(s.orders, order.slot, s.stage, orderSeed, s.unlocked);
+    let orders = replaceOrder(s.orders, order.slot, s.stage, orderSeed, s.unlocked, s.discovered);
     let villageStage = Math.max(s.villageStage, villageForStage(s.stage));
     let advanced = false;
     if (taskIndex >= (stage + 1) * DELIVERIES_PER_STAGE && stage < STAGE_COUNT - 1) {
       stage += 1;
-      orders = seedOrders(stage, s.unlocked);
+      orders = seedOrders(stage, s.unlocked, s.discovered);
       villageStage = Math.max(villageStage, villageForStage(stage));
       advanced = true;
     }
@@ -893,7 +923,7 @@ export const useGame = create<GameState>((set, get) => ({
       board,
       storage,
       inbox,
-      pearls: s.pearls + order.pearls,
+      pearls: s.pearls + order.pearls + bonusPaid,
       xp,
       taskIndex,
       stage,
@@ -965,7 +995,7 @@ export const useGame = create<GameState>((set, get) => ({
     const stage = s.stage + 1;
     const next = {
       stage,
-      orders: seedOrders(stage, s.unlocked),
+      orders: seedOrders(stage, s.unlocked, s.discovered),
       villageStage: Math.max(s.villageStage, villageForStage(stage)),
     };
     set(next);
@@ -1295,7 +1325,7 @@ export const useGame = create<GameState>((set, get) => ({
       if (node.unlocks && !unlocked.includes(node.unlocks)) {
         unlocked = [...unlocked, node.unlocks];
         orderSeed += 1;
-        orders = replaceOrder(orders, 0, s.stage, orderSeed, unlocked);
+        orders = replaceOrder(orders, 0, s.stage, orderSeed, unlocked, s.discovered);
       }
       if (locked.length) {
         locked = freeLocked(locked).locked;
@@ -1483,7 +1513,7 @@ export const useGame = create<GameState>((set, get) => ({
       const stage = s.stage + 1;
       const next = {
         stage,
-        orders: seedOrders(stage, s.unlocked),
+        orders: seedOrders(stage, s.unlocked, s.discovered),
         villageStage: Math.max(s.villageStage, villageForStage(stage)),
         lastTickAt: now,
       };
