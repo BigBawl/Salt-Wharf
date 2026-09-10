@@ -365,9 +365,11 @@ export function shapePool(
   chains: readonly PlayChain[],
 ): OrderShape[] {
   const pool: OrderShape[] = ["fetch", "fetch", "fetch"];
-  if (stage >= 8) pool.push("haul");
-  if (stage >= 16 && chains.length >= 3) pool.push("assorted");
-  if (stage >= 22 && chains.length >= 2) pool.push("pair");
+  if (stage >= 6) pool.push("haul");
+  if (stage >= 12 && chains.length >= 3) pool.push("assorted");
+  // Pair draws both stacks at their chain floor, and the floor is still 1 until
+  // stage 15. Gated at 18 so it never asks for four tier-1 pieces at once.
+  if (stage >= 18 && chains.length >= 2) pool.push("pair");
   const primary = chains[slot % chains.length] ?? chains[0]!;
   const b = tierBand(stage, slot, primary);
   // Width alone would switch ladder on at stage 5 for slot 3, whose ceiling runs

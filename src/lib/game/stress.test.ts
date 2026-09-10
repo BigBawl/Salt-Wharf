@@ -768,9 +768,15 @@ describe("saltwharf orders", () => {
       }
       return s;
     };
-    for (const stage of [0, 3, 7]) {
+    for (const stage of [0, 3, 5]) {
       assert.deepEqual([...shapesAt(stage)], ["fetch"], `stage ${stage} should be fetch only`);
     }
+    // 2a.1 moved the gates in. Assorted at 12 is the one that matters: it is the
+    // first shape a player in the low-teens actually sees.
+    assert.ok(shapesAt(6).has("haul"), "haul must be live at 6");
+    assert.ok(shapesAt(13).has("assorted"), "assorted must be live at 13");
+    assert.ok(!shapesAt(16).has("pair"), "pair must stay off until 18");
+    assert.ok(shapesAt(20).has("pair"), "pair must be live at 20");
     assert.ok(shapesAt(30).has("haul"), "haul missing at 30");
     assert.ok(shapesAt(30).has("assorted"), "assorted missing at 30");
     assert.ok(shapesAt(30).has("pair"), "pair missing at 30");
