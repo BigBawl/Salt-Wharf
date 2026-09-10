@@ -88,6 +88,14 @@ export type ItemDef = {
   produces?: PlayChain;
   genLevel?: 1 | 2;
   consume?: { pearls?: number; drops?: number; charges?: number; split?: boolean; energy?: number };
+  /** 1 = Bright, 2 = Radiant. Absent on every ordinary item. */
+  star?: 1 | 2;
+  /** The chain capstone a starred grade is built from. Never derived by parsing the id. */
+  baseId?: string;
+  /** Explicit predecessor. splitAt needs this: tier arithmetic cannot find s1 from s2. */
+  prevId?: string;
+  /** An arrival worth a fanfare. Set on the base capstone and on Radiant, never between. */
+  capstone?: boolean;
 };
 
 export type Piece = { uid: string; itemId: string };
@@ -1119,6 +1127,64 @@ export const CHAINS: Record<PlayChain, string[]> = {
   keep: ["keep-1", "keep-2", "keep-3", "keep-4", "keep-5", "keep-6"],
 };
 
+/**
+ * Star tiers. Two grades past every chain capstone.
+ *
+ * The capstones were dead ends -- `mergePieces` refuses any merge whose result is
+ * null, so a `wreck-6` could only be sold or held. A play-test run had eighteen of
+ * them sitting on the dock at once, a fifth of the board, inert.
+ *
+ * Zero new artwork: each grade reuses its capstone's PNG and is tinted in ItemArt.
+ *
+ * CHAINS is deliberately NOT extended. Its length is the `cap` that `tierBand`,
+ * `itemIdAt`, Deep and the drop tables all key off, so widening it would move every
+ * floor and ceiling the order generator was tested against. The starred ids live in
+ * ITEMS alone, and no generated order can ever name one.
+ */
+export const STAR_NAMES = ["Bright", "Radiant"] as const;
+/** Worth toward an order for the base item. Exactly the merge tree: 2 bases -> s1, 2 s1 -> s2. */
+export const STAR_WORTH = [2, 4] as const;
+
+for (const ids of Object.values(CHAINS)) {
+  const capId = ids[ids.length - 1]!;
+  const base = ITEMS[capId]!;
+  // The base capstone keeps its arrival moment even though it now has a successor.
+  base.capstone = true;
+  base.nextId = `${capId}s1`;
+  for (let g = 1; g <= STAR_NAMES.length; g++) {
+    const id = `${capId}s${g}`;
+    ITEMS[id] = {
+      id,
+      name: `${STAR_NAMES[g - 1]} ${base.name}`,
+      blurb:
+        g === 1
+          ? `Two ${base.name.toLowerCase()}s pressed into one. It holds the light differently.`
+          : `The deepest the ${base.chain} run goes. Nothing on the dock is quieter or worth more.`,
+      chain: base.chain,
+      tier: base.tier + g,
+      src: base.src,
+      nextId: g < STAR_NAMES.length ? `${capId}s${g + 1}` : null,
+      prevId: g === 1 ? capId : `${capId}s${g - 1}`,
+      baseId: capId,
+      sell: base.sell * STAR_WORTH[g - 1]!,
+      kind: "item",
+      star: g as 1 | 2,
+      capstone: g === STAR_NAMES.length,
+    };
+  }
+}
+
+/** How many of its base item a piece is worth when filling an order. */
+export function itemWorth(id: string): number {
+  const d = ITEMS[id];
+  return d?.star ? STAR_WORTH[d.star - 1]! : 1;
+}
+
+/** The id an order would name for this piece: itself, or the capstone a star came from. */
+export function baseItemId(id: string): string {
+  return ITEMS[id]?.baseId ?? id;
+}
+
 export const TOOL_CHAINS = {
   hammer: ["hammer-1", "hammer-2", "hammer-3", "hammer-4", "hammer-5"],
   paint: ["paint-1", "paint-2", "paint-3", "paint-4", "paint-5"],
@@ -1344,7 +1410,12 @@ export function nextItemId(id: string): string | null {
 
 export function prevItemId(id: string): string | null {
   const def = ITEMS[id];
-  if (!def || def.tier < 2) return null;
+  if (!def) return null;
+  // Starred grades carry an explicit link. `${chain}-${tier-1}` cannot find them:
+  // a Radiant at tier 12 would resolve to a `tide-11` that does not exist, and
+  // splitAt would fail silently.
+  if (def.prevId) return ITEMS[def.prevId] ? def.prevId : null;
+  if (def.tier < 2) return null;
   const prev = `${def.chain}-${def.tier - 1}`;
   return ITEMS[prev] ? prev : null;
 }

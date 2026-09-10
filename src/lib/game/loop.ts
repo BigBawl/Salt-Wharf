@@ -7,6 +7,7 @@ import {
   nearestEmpty,
   piece,
   stageName,
+  STAR_NAMES,
   type Board,
   type Piece,
   type PlayChain,
@@ -689,8 +690,76 @@ export function replaceOrder(
 
 export function neededFromOrders(orders: LiveOrder[]): Set<string> {
   const s = new Set<string>();
-  for (const o of orders) for (const r of o.requires) s.add(r.itemId);
+  for (const o of orders) {
+    for (const r of o.requires) {
+      s.add(r.itemId);
+      // A Bright sitting on a 2x capstone order is genuinely wanted. Without its
+      // substitutes in this set the board would not highlight it and the sell
+      // guard would call it a "high find" rather than an order piece.
+      for (const alt of starSubstitutes(r.itemId)) s.add(alt);
+    }
+  }
   return s;
+}
+
+/** The starred grades that can stand in for a base item, if it is a capstone. */
+export function starSubstitutes(itemId: string): string[] {
+  const out: string[] = [];
+  for (let g = 1; g <= STAR_NAMES.length; g++) {
+    const id = `${itemId}s${g}`;
+    if (ITEMS[id]) out.push(id);
+  }
+  return out;
+}
+
+type Held = { plain: number; s1: number; s2: number };
+
+function heldFor(
+  board: Board,
+  storage: Board,
+  itemId: string,
+  locked: readonly number[],
+): Held {
+  const skip = new Set(locked);
+  const held: Held = { plain: 0, s1: 0, s2: 0 };
+  const tally = (id: string | undefined) => {
+    if (!id) return;
+    if (id === itemId) held.plain += 1;
+    else if (id === `${itemId}s1`) held.s1 += 1;
+    else if (id === `${itemId}s2`) held.s2 += 1;
+  };
+  for (let i = 0; i < board.length; i++) {
+    if (skip.has(i)) continue;
+    tally(board[i]?.itemId);
+  }
+  for (const p of storage) tally(p?.itemId);
+  return held;
+}
+
+/**
+ * Which pieces to spend for `need` of an item, or null if it cannot be met exactly.
+ *
+ * Two rules have to hold at once and they pull against each other. Never overpay:
+ * a Radiant is worth 4, so spending one on a 1x order destroys 3. And prefer plain
+ * pieces, so a star is not consumed while ordinary ones would do.
+ *
+ * Naive cheapest-first breaks the second case it is supposed to serve: needing 2
+ * with one plain and one Bright on the dock, it spends the plain, leaves 1, and
+ * then the Bright is too big -- a fillable order reads as unfillable. So this
+ * searches for an exact fit and picks the one that spends the fewest and smallest
+ * stars. The numbers are tiny (worths 1/2/4, counts at most 3), so the search is
+ * a couple of iterations.
+ */
+export function planSpend(need: number, have: Held): Held | null {
+  let best: Held | null = null;
+  for (let b = 0; b <= Math.min(have.s2, Math.floor(need / 4)); b++) {
+    for (let a = 0; a <= Math.min(have.s1, Math.floor((need - 4 * b) / 2)); a++) {
+      const plain = need - 4 * b - 2 * a;
+      if (plain < 0 || plain > have.plain) continue;
+      if (!best || b < best.s2 || (b === best.s2 && a < best.s1)) best = { plain, s1: a, s2: b };
+    }
+  }
+  return best;
 }
 
 export function countEverywhere(
@@ -715,7 +784,9 @@ export function canFillOrder(
   order: LiveOrder,
   locked: readonly number[] = [],
 ): boolean {
-  return order.requires.every((r) => countEverywhere(board, storage, r.itemId, locked) >= r.count);
+  return order.requires.every(
+    (r) => planSpend(r.count, heldFor(board, storage, r.itemId, locked)) !== null,
+  );
 }
 
 export function takeFromPools(
@@ -728,18 +799,28 @@ export function takeFromPools(
   const st = storage.slice();
   const skip = new Set(locked);
   for (const req of order.requires) {
-    let left = req.count;
-    for (let i = 0; i < b.length && left > 0; i++) {
-      if (skip.has(i)) continue;
-      if (b[i]?.itemId === req.itemId) {
-        b[i] = null;
-        left -= 1;
+    const plan = planSpend(req.count, heldFor(b, st, req.itemId, locked));
+    if (!plan) continue;
+    // Spend exactly what the plan says, plain pieces first so a star is never
+    // taken while an ordinary piece would have done.
+    for (const [id, want] of [
+      [req.itemId, plan.plain],
+      [`${req.itemId}s1`, plan.s1],
+      [`${req.itemId}s2`, plan.s2],
+    ] as Array<[string, number]>) {
+      let left = want;
+      for (let i = 0; i < b.length && left > 0; i++) {
+        if (skip.has(i)) continue;
+        if (b[i]?.itemId === id) {
+          b[i] = null;
+          left -= 1;
+        }
       }
-    }
-    for (let i = 0; i < st.length && left > 0; i++) {
-      if (st[i]?.itemId === req.itemId) {
-        st[i] = null;
-        left -= 1;
+      for (let i = 0; i < st.length && left > 0; i++) {
+        if (st[i]?.itemId === id) {
+          st[i] = null;
+          left -= 1;
+        }
       }
     }
   }

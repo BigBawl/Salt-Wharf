@@ -667,7 +667,10 @@ export const useGame = create<GameState>((set, get) => ({
         },
       ];
     }
-    const capstone = Boolean(mergedDef && !mergedDef.nextId && mergedDef.kind === "item");
+    // Explicit, not inferred. Star tiers gave every capstone a nextId, and the old
+    // `!nextId` test would have silently moved Phase 1's fanfare off the base
+    // capstone and onto Radiant. Both are arrivals; the grade between is not.
+    const capstone = Boolean(mergedDef && mergedDef.capstone && mergedDef.kind === "item");
     // Combo is action-reset, not a clock. The abandonment cap only stops a streak
     // surviving overnight; it is never a play rule and is never checked in tick().
     const comboAt = Date.now();

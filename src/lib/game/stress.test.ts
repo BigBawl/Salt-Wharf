@@ -5,8 +5,8 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { useGame, flushSave } from "./store.ts";
 import { BOARD_SIZE, DELIVERIES_PER_STAGE, ITEMS, SAVE_KEY, SAVE_VERSION, piece } from "./catalog.ts";
-import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, type OrderCondition } from "./loop.ts";
-import { CHAINS, type PlayChain } from "./catalog.ts";
+import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, planSpend, neededFromOrders, type OrderCondition } from "./loop.ts";
+import { CHAINS, itemWorth, baseItemId, nextItemId, prevItemId, type PlayChain } from "./catalog.ts";
 import { healSave, applyKeepScan } from "./watch.ts";
 
 function check(label: string) {
@@ -243,8 +243,12 @@ describe("saltwharf stress", () => {
   it("every find has a picture on disk", () => {
     const missing: string[] = [];
     for (const def of Object.values(ITEMS)) {
-      const file = resolve(process.cwd(), "public/items", `${def.id}.png`);
-      if (!existsSync(file)) missing.push(def.id);
+      // Check `src`, not `${id}.png`. Starred grades deliberately have no file of
+      // their own -- they point at their capstone's picture -- so guessing the path
+      // from the id reports art that is not missing.
+      const name = def.src.slice(def.src.lastIndexOf("/") + 1);
+      const file = resolve(process.cwd(), "public/items", name);
+      if (!existsSync(file)) missing.push(`${def.id} -> ${name}`);
     }
     assert.deepEqual(missing, [], missing.join(", "));
   });
@@ -616,11 +620,14 @@ describe("saltwharf stress", () => {
 const ALL_CHAINS = UNLOCK_ORDER.slice() as PlayChain[];
 const STAGES = Array.from({ length: 120 }, (_, i) => i);
 
+// Never parse an item id. `tide-10s1` makes both a lastIndexOf("-") split and a
+// `${chain}-${tier}` rebuild lie -- tierOf returns NaN and chainOf can return
+// "tide-10". Every def already carries `chain` and `tier`; read those.
 function tierOf(itemId: string): number {
-  return Number(itemId.slice(itemId.lastIndexOf("-") + 1));
+  return ITEMS[itemId]?.tier ?? Number.NaN;
 }
 function chainOf(itemId: string): string {
-  return itemId.slice(0, itemId.lastIndexOf("-"));
+  return ITEMS[itemId]?.chain ?? "";
 }
 function order(stage: number, slot: number, seed: number, unlocked: PlayChain[] = ALL_CHAINS) {
   return makeLiveOrder({ stage, slot, seed, avoid: new Set<string>(), unlocked });
@@ -1080,9 +1087,9 @@ describe("saltwharf conditions", () => {
           const id = o.condition.itemId;
           assert.ok(!known.includes(id), `deep targeted a known item ${id}`);
           assert.ok(ITEMS[id], `deep targeted a non-item ${id}`);
-          const ch = id.slice(0, id.lastIndexOf("-")) as PlayChain;
+          const ch = ITEMS[id]!.chain as PlayChain;
           const b = tierBand(stageNo, slot, ch);
-          const t = Number(id.slice(id.lastIndexOf("-") + 1));
+          const t = ITEMS[id]!.tier;
           // Deep deliberately reaches two tiers past the band ceiling: everything
           // inside the band is already made by the time it unlocks. Safe precisely
           // because it is a bonus -- an unmet deep still delivers on its items.
@@ -1194,5 +1201,188 @@ describe("saltwharf conditions", () => {
 
   it("conditions force no save migration", () => {
     assert.equal(SAVE_VERSION, 9, "optional nested fields must not need a version bump");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 -- star tiers.
+//
+// Two grades past every chain capstone. The capstones were dead ends: a play-test
+// run had eighteen wreck-6 on the dock at once because mergePieces refuses any
+// merge whose result is null. CHAINS stays frozen so the 2a/2b generator is
+// untouched, which test "no order can name a starred item" pins.
+// ---------------------------------------------------------------------------
+
+describe("saltwharf star tiers", () => {
+  const CAPS = Object.values(CHAINS).map((ids) => ids[ids.length - 1]!);
+
+  it("every capstone now merges, and two make its Bright", () => {
+    for (const cap of CAPS) {
+      assert.equal(nextItemId(cap), `${cap}s1`, `${cap} must lead somewhere`);
+      const api = useGame.getState();
+      api.hydrate();
+      api.newTide();
+      const s = useGame.getState();
+      const board = s.board.slice();
+      const free = board.map((p, i) => (!p && !s.locked.includes(i) ? i : -1)).filter((i) => i >= 0);
+      board[free[0]!] = piece(cap);
+      board[free[1]!] = piece(cap);
+      useGame.setState({ board });
+      assert.equal(useGame.getState().mergePieces(free[0]!, free[1]!), true, `${cap} must merge`);
+      assert.ok(
+        useGame.getState().board.some((p) => p?.itemId === `${cap}s1`),
+        `${cap} + ${cap} must make a Bright`,
+      );
+    }
+  });
+
+  it("Radiant is the true cap", () => {
+    for (const cap of CAPS) {
+      assert.equal(nextItemId(`${cap}s2`), null, `${cap}s2 must be the end`);
+      const api = useGame.getState();
+      api.hydrate();
+      api.newTide();
+      const s = useGame.getState();
+      const board = s.board.slice();
+      const free = board.map((p, i) => (!p && !s.locked.includes(i) ? i : -1)).filter((i) => i >= 0);
+      board[free[0]!] = piece(`${cap}s2`);
+      board[free[1]!] = piece(`${cap}s2`);
+      useGame.setState({ board });
+      assert.equal(useGame.getState().mergePieces(free[0]!, free[1]!), false, "two Radiants must not merge");
+    }
+  });
+
+  it("CHAINS is frozen, so no tier band moved", () => {
+    assert.deepEqual(
+      Object.values(CHAINS).map((ids) => ids.length),
+      [10, 10, 10, 8, 8, 6, 6],
+      "widening CHAINS would move every floor and ceiling the generator was tested against",
+    );
+    for (const ids of Object.values(CHAINS)) {
+      for (const id of ids) assert.equal(ITEMS[id]?.star, undefined, `${id} must not be starred`);
+    }
+  });
+
+  it("no generated order can ever name a starred item", () => {
+    const chains = UNLOCK_ORDER.slice() as PlayChain[];
+    for (let stage = 0; stage < 120; stage++) {
+      for (let slot = 0; slot < ORDER_SLOTS; slot++) {
+        for (let seed = 1; seed <= 40; seed++) {
+          const o = makeLiveOrder({ stage, slot, seed, avoid: new Set<string>(), unlocked: chains, discovered: [] });
+          for (const r of o.requires) {
+            assert.equal(ITEMS[r.itemId]?.star, undefined, `stage ${stage} asked for ${r.itemId}`);
+          }
+          if (o.condition?.kind === "deep") {
+            assert.equal(ITEMS[o.condition.itemId]?.star, undefined, "deep must not target a star either");
+          }
+        }
+      }
+    }
+  });
+
+  it("worth is the merge tree: 2 and 4", () => {
+    for (const cap of CAPS) {
+      assert.equal(itemWorth(cap), 1);
+      assert.equal(itemWorth(`${cap}s1`), 2);
+      assert.equal(itemWorth(`${cap}s2`), 4);
+      assert.equal(baseItemId(`${cap}s1`), cap);
+      assert.equal(baseItemId(`${cap}s2`), cap);
+      assert.equal(baseItemId(cap), cap);
+    }
+  });
+
+  it("a star is never spent for more than the order needs", () => {
+    // The value-destroying case: one Radiant on the dock, an order wanting one
+    // capstone. Spending it would burn 4 for 1. The order is simply not fillable.
+    assert.equal(planSpend(1, { plain: 0, s1: 0, s2: 1 }), null, "must not overpay 4 for 1");
+    assert.equal(planSpend(1, { plain: 0, s1: 1, s2: 0 }), null, "must not overpay 2 for 1");
+    assert.equal(planSpend(3, { plain: 0, s1: 0, s2: 1 }), null, "must not overpay 4 for 3");
+    // and when it fits exactly, it is spent
+    assert.deepEqual(planSpend(4, { plain: 0, s1: 0, s2: 1 }), { plain: 0, s1: 0, s2: 1 });
+    assert.deepEqual(planSpend(2, { plain: 0, s1: 1, s2: 0 }), { plain: 0, s1: 1, s2: 0 });
+  });
+
+  it("plain pieces are preferred, but a star is used rather than stranding an order", () => {
+    // prefers plain when plain alone covers it
+    assert.deepEqual(
+      planSpend(2, { plain: 2, s1: 1, s2: 1 }),
+      { plain: 2, s1: 0, s2: 0 },
+      "a star must not be eaten while ordinary pieces would do",
+    );
+    // naive cheapest-first would spend the plain, leave 1, find the Bright too big,
+    // and call a fillable order unfillable. It must not.
+    assert.deepEqual(
+      planSpend(2, { plain: 1, s1: 1, s2: 0 }),
+      { plain: 0, s1: 1, s2: 0 },
+      "one plain + one Bright must fill a 2x order",
+    );
+    assert.deepEqual(planSpend(3, { plain: 1, s1: 1, s2: 0 }), { plain: 1, s1: 1, s2: 0 });
+    assert.equal(planSpend(1, { plain: 0, s1: 0, s2: 0 }), null);
+  });
+
+  it("a Bright fills a 2x capstone order and is consumed once", () => {
+    const cap = "wreck-6";
+    const api = useGame.getState();
+    api.hydrate();
+    api.newTide();
+    const s = useGame.getState();
+    const board = s.board.slice();
+    const free = board.map((p, i) => (!p && !s.locked.includes(i) ? i : -1)).filter((i) => i >= 0);
+    board[free[0]!] = piece(`${cap}s1`);
+    const order = { ...s.orders[0]!, id: "star-test", requires: [{ itemId: cap, count: 2 }], pearls: 5, xp: 5, rewardItem: undefined, condition: undefined, bonus: undefined };
+    const storage = Array.from({ length: STORAGE_SIZE }, () => null);
+    assert.equal(canFillOrder(board, storage, order, s.locked), true, "a Bright must cover 2x");
+    const after = takeFromPools(board, storage, order, s.locked);
+    assert.equal(after.board.filter((p) => p?.itemId === `${cap}s1`).length, 0, "the Bright is spent");
+    // and one Bright must NOT cover a 3x order
+    const three = { ...order, requires: [{ itemId: cap, count: 3 }] };
+    assert.equal(canFillOrder(board, storage, three, s.locked), false, "worth 2 cannot cover 3");
+  });
+
+  it("the capstone moment lands on the base and on Radiant, not between", () => {
+    for (const cap of CAPS) {
+      assert.equal(ITEMS[cap]?.capstone, true, `${cap} must still feel like an arrival`);
+      assert.ok(!ITEMS[`${cap}s1`]?.capstone, "Bright is a step, not an arrival");
+      assert.equal(ITEMS[`${cap}s2`]?.capstone, true, "Radiant is an arrival");
+    }
+  });
+
+  it("stars sell for exactly two and four bases", () => {
+    for (const cap of CAPS) {
+      const base = ITEMS[cap]!.sell;
+      assert.equal(ITEMS[`${cap}s1`]!.sell, base * 2, "a Bright must not mint pearls");
+      assert.equal(ITEMS[`${cap}s2`]!.sell, base * 4, "nor a Radiant");
+    }
+  });
+
+  it("starred grades borrow the capstone picture and add no files", () => {
+    for (const cap of CAPS) {
+      for (const g of [1, 2]) {
+        assert.equal(ITEMS[`${cap}s${g}`]!.src, ITEMS[cap]!.src, `${cap}s${g} must reuse the capstone art`);
+      }
+    }
+  });
+
+  it("a Radiant splits back into two Brights", () => {
+    // prevItemId used to be `${chain}-${tier-1}`, which resolves a Radiant at tier
+    // 12 to a "tide-11" that does not exist -- splitAt would have failed silently.
+    for (const cap of CAPS) {
+      assert.equal(prevItemId(`${cap}s2`), `${cap}s1`, "Radiant splits into Brights");
+      assert.equal(prevItemId(`${cap}s1`), cap, "Bright splits into capstones");
+    }
+  });
+
+  it("the board marks a star as wanted when its base is on an order", () => {
+    const cap = "keep-6";
+    const orders = [{ slot: 0, kind: "resident" as const, id: "x", character: "mae" as const, title: "t", body: "b", requires: [{ itemId: cap, count: 2 }], pearls: 1, xp: 1 }];
+    const needed = neededFromOrders(orders);
+    assert.ok(needed.has(cap), "the base is wanted");
+    assert.ok(needed.has(`${cap}s1`), "so is a Bright of it");
+    assert.ok(needed.has(`${cap}s2`), "and a Radiant");
+    assert.ok(!needed.has("tide-1"), "and nothing else");
+  });
+
+  it("star tiers force no save migration", () => {
+    assert.equal(SAVE_VERSION, 9, "new item ids are data, not schema");
   });
 });
