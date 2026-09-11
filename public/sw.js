@@ -1,4 +1,4 @@
-const CACHE = "saltwharf-v7";
+const CACHE = "saltwharf-v8";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
