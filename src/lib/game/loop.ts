@@ -1133,6 +1133,16 @@ export function holidayFor(now = Date.now()): HolidayId | null {
   return null;
 }
 
+/**
+ * Which seasons have decal art on disk. React reads this rather than CSS, because
+ * every asset in this project goes through asset() for the BASE_URL prefix -- the
+ * site is served from /Salt-Wharf/ on Pages, and a bare url(/season/...) in the
+ * stylesheet would 404 there. Adding winter art later is one line here.
+ */
+export const SEASON_DECALS: Partial<Record<Season, { corners: boolean; cove: boolean }>> = {
+  autumn: { corners: true, cove: true },
+};
+
 export function emptyDaily(): DailyProgress {
   return { orders: 0, merges: 0, nodes: 0, claimed: false };
 }
