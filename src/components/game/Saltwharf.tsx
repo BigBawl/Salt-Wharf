@@ -58,6 +58,7 @@ import {
   canPayStep,
   holidayFor,
   seasonFor,
+  SEASON_DECALS,
   conditionLine,
   conditionMet,
   starSubstitutes,
@@ -350,7 +351,8 @@ function GameScreen() {
 
         <OrderStrip awaitingGate={awaitingGate} />
 
-        <div className="flex min-h-0 flex-1 flex-col px-2 pb-[max(0.35rem,env(safe-area-inset-bottom))] sm:px-3">
+        <div className="relative flex min-h-0 flex-1 flex-col px-2 pb-[max(0.35rem,env(safe-area-inset-bottom))] sm:px-3">
+          <SeasonRails />
           <div className="flex min-h-0 flex-1 flex-col">
             <Board needed={needed} />
           </div>
@@ -435,6 +437,26 @@ function ToastRail({
         </div>
       ))}
     </div>
+  );
+}
+
+function SeasonRails() {
+  useGame((s) => s.dailyDay);
+  const season = seasonFor();
+  if (!SEASON_DECALS[season]?.rails) return null;
+  return (
+    <>
+      <span
+        aria-hidden
+        className="season-rail season-rail-l"
+        style={{ backgroundImage: `url(${asset(`/season/${season}-rail-l.png`)})` }}
+      />
+      <span
+        aria-hidden
+        className="season-rail season-rail-r"
+        style={{ backgroundImage: `url(${asset(`/season/${season}-rail-r.png`)})` }}
+      />
+    </>
   );
 }
 

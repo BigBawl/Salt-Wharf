@@ -144,31 +144,31 @@
 [data-season="spring"] .harbor-stage { background: #93c7b4; }
 [data-season="summer"] .harbor-stage { background: #7eb8c9; }
 
-[data-season="autumn"] .harbor-stage canvas { filter: saturate(1.04) hue-rotate(-14deg) brightness(0.96); }
-[data-season="winter"] .harbor-stage canvas { filter: saturate(0.68) hue-rotate(12deg) brightness(1.05); }
-[data-season="spring"] .harbor-stage canvas { filter: saturate(1.06) hue-rotate(10deg) brightness(1.02); }
-[data-season="summer"] .harbor-stage canvas { filter: saturate(1.1) brightness(1.04); }
+/* Season is painted inside CoveIso / HarborCanvas now. A CSS filter on the canvas
+   would tint the already-seasonal trees a second time. Sky behind the canvas still
+   follows the season so a letterbox never flashes summer teal. */
 
 /* Season decals. Positioning only -- the image URL is set in React, because every
    asset here goes through asset() for the /Salt-Wharf/ base and a url() in this
    file would 404 on Pages. */
 .season-corner {
   position: absolute;
-  top: 0;
-  width: 56px;
-  height: 56px;
-  z-index: 3;
+  top: auto;
+  bottom: 0.2rem;
+  width: 80px;
+  height: 80px;
+  z-index: 15;
   pointer-events: none;
   background-repeat: no-repeat;
   background-size: contain;
 }
 .season-corner-l {
-  left: 0;
-  background-position: top left;
+  left: 0.2rem;
+  background-position: bottom left;
 }
 .season-corner-r {
-  right: 0;
-  background-position: top right;
+  right: 6.8rem;
+  background-position: bottom right;
 }
 
 .season-cove {
@@ -181,9 +181,41 @@
   background-position: top center;
 }
 
+/* Desktop-only dressing in the empty chrome beside the 520px board. */
+.season-rail {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+  top: 0.5rem;
+  bottom: 5.5rem;
+  width: min(22%, 220px);
+  z-index: 1;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+.season-rail-l {
+  left: 0;
+  background-position: left center;
+}
+.season-rail-r {
+  right: 0;
+  background-position: right center;
+}
+
+@media (min-width: 1024px) {
+  .season-rail {
+    display: block;
+  }
+  .season-corner {
+    width: 104px;
+    height: 104px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .season-corner,
-  .season-cove {
+  .season-cove,
+  .season-rail {
     transition: none;
   }
 }

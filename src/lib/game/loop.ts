@@ -1139,9 +1139,63 @@ export function holidayFor(now = Date.now()): HolidayId | null {
  * site is served from /Salt-Wharf/ on Pages, and a bare url(/season/...) in the
  * stylesheet would 404 there. Adding winter art later is one line here.
  */
-export const SEASON_DECALS: Partial<Record<Season, { corners: boolean; cove: boolean }>> = {
-  autumn: { corners: true, cove: true },
+export const SEASON_DECALS: Partial<Record<Season, { corners: boolean; cove: boolean; rails: boolean }>> = {
+  autumn: { corners: true, cove: true, rails: true },
 };
+
+/** Per-season look for the two harbour painters (CoveIso 2D, HarborCanvas 3D). */
+export function seasonLook(season: Season = seasonFor()) {
+  switch (season) {
+    case "autumn":
+      return {
+        sky: ["#e4c48a", "#c49a62", "#8a6240"] as const,
+        water: ["#3a8aa0", "#1e6a80", "#145060"] as const,
+        grass: "#b07a38",
+        foliage: ["#c45a18", "#e07020"] as const,
+        pumpkins: true,
+        webSky: "#c4a070",
+        webFoliage: 0xc45a18,
+        webFoliageDeep: 0x8a2808,
+        webGrass: 0xd4a060,
+      };
+    case "winter":
+      return {
+        sky: ["#d8e6f0", "#b8cce0", "#8aa8c0"] as const,
+        water: ["#6a90a8", "#3a6880", "#2a4860"] as const,
+        grass: "#c8d0c0",
+        foliage: ["#8a9a7a", "#a8b898"] as const,
+        pumpkins: false,
+        webSky: "#b8c8d8",
+        webFoliage: 0x8a9a78,
+        webFoliageDeep: 0x6a7a58,
+        webGrass: 0xc8d0c4,
+      };
+    case "spring":
+      return {
+        sky: ["#b8e0d4", "#8ec8b8", "#5aaa90"] as const,
+        water: ["#3eb4c8", "#1e8aa4", "#146888"] as const,
+        grass: "#5aaa48",
+        foliage: ["#3d8a3a", "#5aaa48"] as const,
+        pumpkins: false,
+        webSky: "#93c7b4",
+        webFoliage: 0x3f8a3c,
+        webFoliageDeep: 0x2d6a30,
+        webGrass: 0xffffff,
+      };
+    default:
+      return {
+        sky: ["#8ec8dc", "#7eb8c9", "#4aa3b8"] as const,
+        water: ["#3eb4c8", "#1e8aa4", "#146888"] as const,
+        grass: "#5a9a42",
+        foliage: ["#3d8a3a", "#5aaa48"] as const,
+        pumpkins: false,
+        webSky: "#7eb8c9",
+        webFoliage: 0x3f8a3c,
+        webFoliageDeep: 0x2d6a30,
+        webGrass: 0xffffff,
+      };
+  }
+}
 
 export function emptyDaily(): DailyProgress {
   return { orders: 0, merges: 0, nodes: 0, claimed: false };

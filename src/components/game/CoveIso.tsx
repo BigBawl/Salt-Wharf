@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { COVE_NODES } from "@/lib/game/loop";
+import { COVE_NODES, seasonLook } from "@/lib/game/loop";
 
 type Props = {
   coveNode: number;
@@ -108,11 +108,12 @@ function paint(
   hits: Hit[],
 ) {
   hits.length = 0;
+  const look = seasonLook();
   ctx.clearRect(0, 0, w, h);
   const sky = ctx.createLinearGradient(0, 0, 0, h);
-  sky.addColorStop(0, "#8ec8dc");
-  sky.addColorStop(0.42, "#7eb8c9");
-  sky.addColorStop(1, "#4aa3b8");
+  sky.addColorStop(0, look.sky[0]);
+  sky.addColorStop(0.42, look.sky[1]);
+  sky.addColorStop(1, look.sky[2]);
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, w, h);
 
@@ -124,8 +125,8 @@ function paint(
     y: oy + (x + y) * s * 0.5 - z * s * 0.72,
   });
 
-  water(ctx, P, s, t, w, h);
-  land(ctx, P, s);
+  water(ctx, P, s, t, w, h, look.water);
+  land(ctx, P, s, look.grass);
   pierBoards(ctx, P, s, coveNode > 2);
   lighthouse(ctx, P, s, coveNode >= 7);
 
@@ -141,7 +142,8 @@ function paint(
     if (current) ring(ctx, p.x, p.y - s * 0.15, s * 0.95, t);
   }
 
-  trees(ctx, P, s, coveNode);
+  trees(ctx, P, s, coveNode, look.foliage);
+  if (look.pumpkins) pumpkins(ctx, P, s);
   gulls(ctx, P, s, t);
 }
 
@@ -152,6 +154,7 @@ function water(
   t: number,
   w: number,
   h: number,
+  tones: readonly [string, string, string],
 ) {
   const a = P(-2, 4.2);
   const b = P(10, 4.2);
@@ -164,9 +167,9 @@ function water(
   ctx.lineTo(d.x, h + 20);
   ctx.closePath();
   const g = ctx.createLinearGradient(0, a.y, 0, h);
-  g.addColorStop(0, "#3eb4c8");
-  g.addColorStop(0.45, "#1e8aa4");
-  g.addColorStop(1, "#146888");
+  g.addColorStop(0, tones[0]);
+  g.addColorStop(0.45, tones[1]);
+  g.addColorStop(1, tones[2]);
   ctx.fillStyle = g;
   ctx.fill();
   ctx.save();
@@ -187,11 +190,12 @@ function land(
   ctx: CanvasRenderingContext2D,
   P: (x: number, y: number, z?: number) => { x: number; y: number },
   s: number,
+  grass: string,
 ) {
   poly(
     ctx,
     [P(-1.4, -1.2), P(8.6, -1.2), P(8.6, 5.1), P(-1.4, 5.1)],
-    "#5a9a42",
+    grass,
   );
   poly(
     ctx,
@@ -368,6 +372,7 @@ function trees(
   P: (x: number, y: number, z?: number) => { x: number; y: number },
   s: number,
   coveNode: number,
+  foliage: readonly [string, string],
 ) {
   const lush = coveNode > 2;
   const spots: Array<[number, number]> = [
@@ -381,14 +386,35 @@ function trees(
   for (const [x, y] of spots) {
     box(ctx, P, x, y, 0, 0.16, 0.16, 0.55, "#5a3a22", "#3a2414", "#6a4a28");
     const p = P(x + 0.08, y + 0.08, 1.15);
-    ctx.fillStyle = lush ? "#3d8a3a" : "#6a7048";
+    ctx.fillStyle = lush ? foliage[0] : "#6a7048";
     ctx.beginPath();
     ctx.arc(p.x, p.y, s * 0.42, 0, TAU);
     ctx.fill();
-    ctx.fillStyle = lush ? "#5aaa48" : "#7a8058";
+    ctx.fillStyle = lush ? foliage[1] : "#7a8058";
     ctx.beginPath();
     ctx.arc(p.x - s * 0.12, p.y - s * 0.1, s * 0.28, 0, TAU);
     ctx.fill();
+  }
+}
+
+function pumpkins(
+  ctx: CanvasRenderingContext2D,
+  P: (x: number, y: number, z?: number) => { x: number; y: number },
+  s: number,
+) {
+  const spots: Array<[number, number]> = [
+    [5.4, 5.0],
+    [3.4, 4.55],
+    [0.6, 4.35],
+  ];
+  for (const [x, y] of spots) {
+    const p = P(x, y, 0.22);
+    ctx.fillStyle = "#d45a18";
+    ctx.beginPath();
+    ctx.ellipse(p.x, p.y, s * 0.18, s * 0.14, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = "#3d6a28";
+    ctx.fillRect(p.x - 2, p.y - s * 0.18, 3, s * 0.1);
   }
 }
 
