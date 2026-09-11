@@ -1667,7 +1667,7 @@ describe("saltwharf season decals", () => {
 
   it("decals never swallow a tap", () => {
     const s = css();
-    for (const cls of [".season-corner", ".season-cove"]) {
+    for (const cls of [".season-corner", ".season-cove", ".season-rail"]) {
       const block = s.match(new RegExp(`\\${cls} \\{([^}]*)\\}`));
       assert.ok(block, `${cls} has no rule`);
       assert.ok(block![1]!.includes("pointer-events: none"), `${cls} must not take pointer events`);
@@ -1685,5 +1685,56 @@ describe("saltwharf season decals", () => {
 
   it("decals force no save migration", () => {
     assert.equal(SAVE_VERSION, 9);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Desktop: rails in the leftover gutter, drag ghost outside the perspective
+// containing block. Both measured in Chromium against live CSS at 1024–1920.
+// ---------------------------------------------------------------------------
+
+describe("saltwharf desktop chrome", () => {
+  const css = () => readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+  const boardSrc = () => readFileSync(resolve(process.cwd(), "src/components/game/Board.tsx"), "utf8");
+
+  it("the drag ghost is portaled onto document.body", () => {
+    const src = boardSrc();
+    assert.ok(src.includes("createPortal"), "ghost must leave the board-stage tree");
+    assert.ok(/createPortal\([\s\S]*document\.body/.test(src), "ghost must portal onto document.body");
+    // Still a ghost: never steal the cell hit-test that cellFromPoint relies on.
+    assert.ok(src.includes("pointer-events-none"), "ghost must stay pointer-events-none");
+  });
+
+  it("rails size to the leftover gutter, not 22% of the column", () => {
+    const s = css();
+    const block = s.match(/\.season-rail \{([^}]*)\}/);
+    assert.ok(block, ".season-rail has no rule");
+    const body = block![1]!;
+    assert.ok(!body.includes("22%"), "22% of the column sits on the board at 1024–1210px");
+    assert.ok(
+      body.includes("calc((100% - 520px) / 2 - 8px)"),
+      "width must be the leftover gutter beside the 520px board",
+    );
+    assert.ok(body.includes("min(220px"), "cap so a panel-less width cannot grow a giant rail");
+  });
+
+  it("rails stay desktop-only and sit on the dock, not floating mid-gutter", () => {
+    const s = css();
+    assert.ok(
+      /@media \(min-width: 1024px\) \{[^}]*\.season-rail \{[^}]*display:\s*block/s.test(s),
+      "rails must not appear on a phone",
+    );
+    const left = s.match(/\.season-rail-l \{([^}]*)\}/);
+    const right = s.match(/\.season-rail-r \{([^}]*)\}/);
+    assert.ok(left && left[1]!.includes("left bottom"), "left rail must anchor bottom");
+    assert.ok(right && right[1]!.includes("right bottom"), "right rail must anchor bottom");
+  });
+
+  it("these fixes do not bump CACHE or SAVE_VERSION", () => {
+    assert.equal(SAVE_VERSION, 9);
+    const sw = readFileSync(resolve(process.cwd(), "public/sw.js"), "utf8");
+    const m = sw.match(/const CACHE = "saltwharf-v(\d+)"/);
+    assert.ok(m, "sw.js has no CACHE name");
+    assert.equal(Number(m![1]), 10, "no public/ files in this patch — CACHE stays v10");
   });
 });
