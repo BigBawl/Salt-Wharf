@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { COVE_NODES } from "@/lib/game/loop";
+import { COVE_NODES, seasonLook } from "@/lib/game/loop";
 import { useGame } from "@/lib/game/store";
 
 const HARBOR_POS: Record<string, [number, number, number]> = {
@@ -773,6 +773,31 @@ function ExploreRig() {
   return null;
 }
 
+function Pumpkins() {
+  const spots: Array<[number, number, number]> = [
+    [2.4, 0, 5.2],
+    [-1.8, 0, 5.5],
+    [-5.6, 0, -4.6],
+    [5.1, 0, 3.4],
+  ];
+  return (
+    <group>
+      {spots.map((p, i) => (
+        <group key={i} position={p}>
+          <mesh position={[0, 0.2, 0]} castShadow>
+            <sphereGeometry args={[0.22 + (i % 2) * 0.04, 10, 8]} />
+            <meshStandardMaterial color="#d45a18" roughness={0.72} />
+          </mesh>
+          <mesh position={[0, 0.42, 0]}>
+            <cylinderGeometry args={[0.03, 0.035, 0.1, 5]} />
+            <meshStandardMaterial color="#3d6a28" />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
 function Scene({
   coveNode,
   focus,
@@ -784,7 +809,14 @@ function Scene({
   onFocus: (i: number) => void;
   explore?: boolean;
 }) {
-  const mats = useMemo(() => makeMats(), []);
+  const look = seasonLook();
+  const mats = useMemo(() => {
+    const m = makeMats();
+    m.foliage.color.setHex(look.webFoliage);
+    m.foliageDeep.color.setHex(look.webFoliageDeep);
+    m.grass.color.setHex(look.webGrass);
+    return m;
+  }, [look.webFoliage, look.webFoliageDeep, look.webGrass]);
   useEffect(
     () => () => {
       for (const m of Object.values(mats)) {
@@ -805,7 +837,7 @@ function Scene({
       onPick: () => onFocus(i < 0 ? 0 : i),
     };
   };
-  const sky = restoredBias > 0.7 ? "#8ec8dc" : restoredBias > 0.3 ? "#7eb8c9" : "#6a9aaa";
+  const sky = look.webSky;
 
   return (
     <>
@@ -841,6 +873,7 @@ function Scene({
       <PierHouse mats={mats} {...st("pier")} />
       <Lighthouse mats={mats} on={lit} />
       <Trees mats={mats} lush={restoredBias > 0.35} />
+      {look.pumpkins ? <Pumpkins /> : null}
       <Gulls />
       {explore ? <Walker /> : null}
     </>
@@ -851,9 +884,10 @@ function InvalidateOnProgress() {
   const invalidate = useThree((s) => s.invalidate);
   const coveNode = useGame((s) => s.coveNode);
   const cosmetics = useGame((s) => s.cosmetics);
+  const dailyDay = useGame((s) => s.dailyDay);
   useEffect(() => {
     invalidate();
-  }, [coveNode, cosmetics, invalidate]);
+  }, [coveNode, cosmetics, dailyDay, invalidate]);
   return null;
 }
 

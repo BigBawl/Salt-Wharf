@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { useGame, flushSave } from "./store.ts";
 import { BOARD_SIZE, DELIVERIES_PER_STAGE, ITEMS, SAVE_KEY, SAVE_VERSION, piece } from "./catalog.ts";
-import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, planSpend, neededFromOrders, seasonFor, holidayFor, easterSunday, nthWeekday, SEASONS, SEASON_DECALS, type OrderCondition } from "./loop.ts";
+import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, planSpend, neededFromOrders, seasonFor, holidayFor, easterSunday, nthWeekday, SEASONS, SEASON_DECALS, seasonLook, type OrderCondition } from "./loop.ts";
 import { CHAINS, itemWorth, baseItemId, nextItemId, prevItemId, type PlayChain } from "./catalog.ts";
 import { healSave, applyKeepScan, topicFromLegacy } from "./watch.ts";
 
@@ -1625,19 +1625,17 @@ describe("saltwharf season decals", () => {
         new RegExp(`\\[data-season="${season}"\\] \\.harbor-stage \\{[^}]*background:`).test(s),
         `${season} leaves the harbour sky on the hardcoded #7eb8c9`,
       );
-      assert.ok(
-        new RegExp(`\\[data-season="${season}"\\] \\.harbor-stage canvas \\{[^}]*filter:`).test(s),
-        `${season} leaves the 3D harbour untinted`,
-      );
     }
+    // Trees are painted inside the canvas now. Autumn foliage must not be the summer green.
+    assert.notEqual(seasonLook("autumn").webFoliage, seasonLook("summer").webFoliage);
+    assert.equal(seasonLook("autumn").pumpkins, true);
+    assert.equal(seasonLook("summer").pumpkins, false);
   });
 
-  it("the harbour filter is on the canvas, not the decal wrapper", () => {
-    // Filtering [data-harbor-world] would tint the decals layered over it a second
-    // time -- autumn leaves through an autumn filter.
+  it("the harbour filter is not double-tinting the canvas", () => {
     const s = css();
-    assert.ok(!/\[data-season="[a-z]+"\] \[data-harbor-world\] \{[^}]*filter:/.test(s),
-      "tint the canvas, not the wrapper");
+    assert.ok(!/\[data-season="[a-z]+"\] \.harbor-stage canvas \{[^}]*filter:/.test(s),
+      "season colour is painted in-canvas; a CSS filter would stack");
   });
 
   it("every declared decal has a file on disk", () => {
@@ -1645,6 +1643,7 @@ describe("saltwharf season decals", () => {
       const want: string[] = [];
       if (slots?.corners) want.push(`${season}-corner-l.png`, `${season}-corner-r.png`);
       if (slots?.cove) want.push(`${season}-cove.png`);
+      if (slots?.rails) want.push(`${season}-rail-l.png`, `${season}-rail-r.png`);
       for (const f of want) {
         assert.ok(
           existsSync(resolve(process.cwd(), "public/season", f)),
