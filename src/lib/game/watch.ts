@@ -74,13 +74,36 @@ function validId(id: unknown): id is string {
   return typeof id === "string" && Boolean(ITEMS[remapId(id)]);
 }
 
+/**
+ * Names a find used to carry. A Keep note saved before a rename still says the old
+ * one, and this function resolves notes BY NAME to build a stable `art:<id>` topic.
+ * Without this map a renamed item's old note falls back to `art:<old string>`, stops
+ * matching new notes about the same find, and the player sees it twice.
+ */
+const LEGACY_NAMES: Record<string, string> = {
+  "Iron Nail": "craft-1",
+  "Rope Coil": "craft-2",
+  "Hand Saw": "craft-4",
+  "Toolbox": "craft-5",
+  "Brass Lantern": "craft-7",
+  "Beacon Lamp": "craft-10",
+};
+// "Claw Hammer" is deliberately absent. Holt still owns that name, so the live
+// lookup resolves it to hammer-3 before this map is consulted. An old note saying
+// "Claw Hammer" was ambiguous the moment two items shared the name -- it could
+// have meant either -- and pointing it at craft-3 would break the notes that
+// really were about the hammer. Resolving to the item that still holds the name
+// is the only non-arbitrary answer.
+
 export function topicFromLegacy(text: string): string {
   const raw = text.replace(/^The Keep:\s*/i, "");
   const pic = raw.match(/^(.+?) has no picture/i);
   if (pic) {
     const name = pic[1]!.trim();
     const hit = Object.values(ITEMS).find((i) => i.name === name);
-    return hit ? `art:${hit.id}` : `art:${name}`;
+    if (hit) return `art:${hit.id}`;
+    const legacy = LEGACY_NAMES[name];
+    return legacy ? `art:${legacy}` : `art:${name}`;
   }
   if (/notices were sitting/i.test(raw)) return "overlay";
   if (/starter crates/i.test(raw)) return "crates";

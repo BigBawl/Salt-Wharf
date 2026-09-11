@@ -7,7 +7,7 @@ import { useGame, flushSave } from "./store.ts";
 import { BOARD_SIZE, DELIVERIES_PER_STAGE, ITEMS, SAVE_KEY, SAVE_VERSION, piece } from "./catalog.ts";
 import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, planSpend, neededFromOrders, type OrderCondition } from "./loop.ts";
 import { CHAINS, itemWorth, baseItemId, nextItemId, prevItemId, type PlayChain } from "./catalog.ts";
-import { healSave, applyKeepScan } from "./watch.ts";
+import { healSave, applyKeepScan, topicFromLegacy } from "./watch.ts";
 
 function check(label: string) {
   const s = useGame.getState();
@@ -1380,6 +1380,39 @@ describe("saltwharf star tiers", () => {
     assert.ok(needed.has(`${cap}s1`), "so is a Bright of it");
     assert.ok(needed.has(`${cap}s2`), "and a Radiant");
     assert.ok(!needed.has("tide-1"), "and nothing else");
+  });
+
+  it("no two finds share a name or a blurb", () => {
+    // Part A. craft-3 and hammer-3 were both "Claw Hammer"; craft-10 and lamp-5
+    // shared a blurb word for word. energy-flask is the one legitimate pair --
+    // it is a legacy id that watch.ts remaps onto energy-3, so it is the same
+    // item and SHOULD carry the same name.
+    const real = Object.values(ITEMS).filter((d) => !d.star && d.id !== "energy-flask");
+    const names = new Map<string, string[]>();
+    const blurbs = new Map<string, string[]>();
+    for (const d of real) {
+      if (!names.has(d.name)) names.set(d.name, []);
+      names.get(d.name)!.push(d.id);
+      if (!blurbs.has(d.blurb)) blurbs.set(d.blurb, []);
+      blurbs.get(d.blurb)!.push(d.id);
+    }
+    for (const [name, ids] of names) assert.equal(ids.length, 1, `"${name}" is used by ${ids.join(", ")}`);
+    for (const [, ids] of blurbs) assert.equal(ids.length, 1, `${ids.join(", ")} share a blurb`);
+  });
+
+  it("a Keep note written before a rename still finds its item", () => {
+    // topicFromLegacy resolves old notes by NAME. Without the legacy map a note
+    // saying "Claw Hammer has no picture" would stop matching craft-3 and the
+    // player would see the same note twice.
+    assert.equal(topicFromLegacy("The Keep: Iron Nail has no picture"), "art:craft-1");
+    // "Claw Hammer" was shared by craft-3 and hammer-3, so an old note using it is
+    // ambiguous by construction. Holt still holds the name, so it resolves there.
+    assert.equal(topicFromLegacy("The Keep: Claw Hammer has no picture"), "art:hammer-3");
+    assert.equal(topicFromLegacy("The Keep: Beacon Lamp has no picture"), "art:craft-10");
+    // and a current name still resolves the ordinary way
+    assert.equal(topicFromLegacy("The Keep: Ship's Bell has no picture"), "art:craft-3");
+    // Holt keeps his hammer, so this must resolve to the tool, not to craft
+    assert.equal(topicFromLegacy("The Keep: Dock Maul has no picture"), "art:hammer-4");
   });
 
   it("star tiers force no save migration", () => {
