@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   COLS,
   DRAG_THRESHOLD,
@@ -395,17 +396,20 @@ export function Board({ needed }: { needed: Set<string> }) {
         </div>
       </div>
 
-      {drag?.active ? (
-        <div
-          className={cn(
-            "pointer-events-none fixed z-40 size-16 -translate-x-1/2 -translate-y-1/2 drop-shadow-lg sm:size-20",
-            shake && "shake-x",
-          )}
-          style={{ left: drag.x, top: drag.y }}
-        >
-          <ItemArt itemId={drag.piece.itemId} className="h-full w-full" />
-        </div>
-      ) : null}
+      {drag?.active
+        ? createPortal(
+            <div
+              className={cn(
+                "pointer-events-none fixed z-40 size-16 -translate-x-1/2 -translate-y-1/2 drop-shadow-lg sm:size-20",
+                shake && "shake-x",
+              )}
+              style={{ left: drag.x, top: drag.y }}
+            >
+              <ItemArt itemId={drag.piece.itemId} className="h-full w-full" />
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
