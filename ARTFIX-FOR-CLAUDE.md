@@ -7,7 +7,7 @@ Grok could not attach files in chat (client blocks downloads). This branch is th
 
 ## What you do
 
-1. Bump `CACHE` in `public/sw.js` from `saltwharf-v3` to **`saltwharf-v4`**.
+1. Bump `CACHE` in `public/sw.js` from `saltwharf-v6` to **`saltwharf-v7`** (live is already v6).
 2. One merge to main / one Actions run after you are happy:
    - `src/lib/game/catalog.ts`
    - `src/lib/game/watch.ts`
