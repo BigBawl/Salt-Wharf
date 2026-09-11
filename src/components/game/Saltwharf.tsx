@@ -56,6 +56,8 @@ import {
   ENERGY_MAX,
   canFillOrder,
   canPayStep,
+  holidayFor,
+  seasonFor,
   conditionLine,
   conditionMet,
   starSubstitutes,
@@ -93,6 +95,25 @@ export function Saltwharf() {
   const started = useGame((s) => s.started);
   const hydrated = useGame((s) => s.hydrated);
   const hydrate = useGame((s) => s.hydrate);
+  // dailyDay already rolls over in tick(), so it is the cheapest daily heartbeat
+  // in the store -- the costume re-evaluates when the date does, without a timer.
+  const dailyDay = useGame((s) => s.dailyDay);
+
+  // On documentElement, not on a game div: `body { background: var(--color-bg-deep) }`
+  // reads tokens from the root, and StartScreen is a separate tree that returns
+  // before GameScreen ever mounts. Anything lower leaves the boot screen in
+  // last season's colours.
+  //
+  // useLayoutEffect, not useEffect: an effect runs after paint, so the first frame
+  // would render in the base cream palette and then snap to the season. The
+  // costume has to be on the root before anything is painted.
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.dataset.season = seasonFor();
+    const holiday = holidayFor();
+    if (holiday) root.dataset.holiday = holiday;
+    else delete root.dataset.holiday;
+  }, [dailyDay]);
 
   useLayoutEffect(() => {
     hydrate();
