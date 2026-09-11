@@ -1,11 +1,11 @@
 import "./stress-preload.ts";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { useGame, flushSave } from "./store.ts";
 import { BOARD_SIZE, DELIVERIES_PER_STAGE, ITEMS, SAVE_KEY, SAVE_VERSION, piece } from "./catalog.ts";
-import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, planSpend, neededFromOrders, type OrderCondition } from "./loop.ts";
+import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, planSpend, neededFromOrders, seasonFor, holidayFor, easterSunday, nthWeekday, SEASONS, type OrderCondition } from "./loop.ts";
 import { CHAINS, itemWorth, baseItemId, nextItemId, prevItemId, type PlayChain } from "./catalog.ts";
 import { healSave, applyKeepScan, topicFromLegacy } from "./watch.ts";
 
@@ -1417,5 +1417,191 @@ describe("saltwharf star tiers", () => {
 
   it("star tiers force no save migration", () => {
     assert.equal(SAVE_VERSION, 9, "new item ids are data, not schema");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4a -- seasons.
+//
+// Every costume is a pure function of the clock, so December is provable in
+// September. Nothing here is stored and SAVE_VERSION does not move.
+// v1 is the Canadian calendar in local time: Thanksgiving is the second Monday
+// of October, and a southern-hemisphere player gets snow in July. Deliberate.
+// ---------------------------------------------------------------------------
+
+describe("saltwharf seasons", () => {
+  const at = (y: number, m: number, d: number, hh = 12) => new Date(y, m, d, hh).getTime();
+
+  it("Easter lands on the real date", () => {
+    const known: Record<number, string> = {
+      2024: "2024-03-31", 2025: "2025-04-20", 2026: "2026-04-05",
+      2027: "2027-03-28", 2028: "2028-04-16", 2029: "2029-04-01", 2030: "2030-04-21",
+    };
+    for (const [y, want] of Object.entries(known)) {
+      const d = easterSunday(Number(y));
+      const got = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      assert.equal(got, want, `Easter ${y}`);
+      // structural, so a wrong computus cannot pass by matching a typo above
+      assert.equal(d.getDay(), 0, `Easter ${y} must be a Sunday`);
+      assert.ok(d.getMonth() === 2 || d.getMonth() === 3, `Easter ${y} must be March or April`);
+    }
+  });
+
+  it("Thanksgiving is the Canadian one", () => {
+    for (let y = 2026; y <= 2032; y++) {
+      const d = nthWeekday(y, 9, 1, 2);
+      assert.equal(d.getMonth(), 9, `${y}: October`);
+      assert.equal(d.getDay(), 1, `${y}: Monday`);
+      // the 2nd Monday is the only Monday falling on the 8th-14th
+      assert.ok(d.getDate() >= 8 && d.getDate() <= 14, `${y}: second Monday, got the ${d.getDate()}`);
+      // and it must NOT be the American date, the 4th Thursday of November
+      const us = nthWeekday(y, 10, 4, 4);
+      assert.notEqual(holidayFor(at(y, us.getMonth(), us.getDate())), "thanksgiving", `${y}: US date must be ordinary`);
+    }
+  });
+
+  it("the Thanksgiving costume runs Saturday through Monday", () => {
+    const mon = nthWeekday(2026, 9, 1, 2);
+    const day = (off: number) => holidayFor(at(2026, 9, mon.getDate() + off));
+    assert.equal(day(-3), null, "Friday is ordinary");
+    assert.equal(day(-2), "thanksgiving", "Saturday");
+    assert.equal(day(-1), "thanksgiving", "Sunday");
+    assert.equal(day(0), "thanksgiving", "Monday itself");
+    assert.equal(day(1), null, "Tuesday is ordinary");
+  });
+
+  it("every month lands in exactly one season", () => {
+    const want: Record<number, string> = {
+      0: "winter", 1: "winter", 2: "spring", 3: "spring", 4: "spring",
+      5: "summer", 6: "summer", 7: "summer", 8: "autumn", 9: "autumn",
+      10: "autumn", 11: "winter",
+    };
+    for (let m = 0; m < 12; m++) {
+      const first = new Date(2026, m, 1, 0, 0, 0, 0).getTime();
+      const last = new Date(2026, m + 1, 0, 23, 59, 59, 999).getTime();
+      assert.equal(seasonFor(first), want[m], `month ${m} first second`);
+      assert.equal(seasonFor(last), want[m], `month ${m} last second`);
+    }
+  });
+
+  it("holiday windows hold at their first and last second", () => {
+    const edge = (y: number, m: number, d: number, want: string | null) => {
+      assert.equal(holidayFor(new Date(y, m, d, 0, 0, 0, 0).getTime()), want, `${y}-${m + 1}-${d} 00:00`);
+      assert.equal(holidayFor(new Date(y, m, d, 23, 59, 59, 999).getTime()), want, `${y}-${m + 1}-${d} 23:59`);
+    };
+    edge(2026, 11, 17, null);          // Dec 17 ordinary
+    edge(2026, 11, 18, "christmas");   // window opens
+    edge(2026, 11, 26, "christmas");   // window closes
+    edge(2026, 11, 27, null);
+    edge(2026, 11, 31, "newyear");
+    edge(2027, 0, 1, "newyear");
+    edge(2027, 0, 2, "newyear");
+    edge(2027, 0, 3, null);
+    edge(2026, 9, 24, null);
+    edge(2026, 9, 25, "halloween");
+    edge(2026, 9, 31, "halloween");
+    edge(2026, 10, 1, null);
+    edge(2026, 6, 1, "canadaday");
+    edge(2026, 6, 2, null);
+  });
+
+  it("Christmas Day is Christmas, not New Year", () => {
+    // the Dec 31 rule sits after the Christmas rule on purpose
+    assert.equal(holidayFor(at(2026, 11, 25)), "christmas");
+    assert.equal(holidayFor(at(2026, 11, 31)), "newyear");
+  });
+
+  it("a whole year never doubles up or leaves a gap", () => {
+    for (const y of [2024, 2026, 2027, 2028]) {
+      for (let m = 0; m < 12; m++) {
+        const days = new Date(y, m + 1, 0).getDate();
+        for (let d = 1; d <= days; d++) {
+          const t = at(y, m, d);
+          const s = seasonFor(t);
+          assert.ok(SEASONS.includes(s), `${y}-${m + 1}-${d}: ${s} is not a season`);
+          const h = holidayFor(t);
+          if (h !== null) {
+            assert.equal(typeof h, "string", `${y}-${m + 1}-${d}`);
+          }
+        }
+      }
+    }
+    // 2024 is a leap year: Feb 29 must resolve like any other day
+    assert.equal(seasonFor(at(2024, 1, 29)), "winter");
+  });
+
+  it("the resolvers read their argument, not the wall clock", () => {
+    // Comparing seasonFor(t) to itself cannot catch a Date.now() leak, since both
+    // calls pass the same t. Move the clock underneath instead.
+    const real = Date.now;
+    try {
+      // Easter 2027 is March 28, not April -- the window is Good Friday to Easter Monday.
+      const samples = [at(2026, 11, 25), at(2027, 2, 28), at(2026, 8, 11), at(2026, 9, 31)];
+      Date.now = () => at(2026, 5, 15); // a summer day with no holiday
+      const first = samples.map((t) => `${seasonFor(t)}/${holidayFor(t)}`);
+      Date.now = () => at(2026, 11, 25); // Christmas
+      const second = samples.map((t) => `${seasonFor(t)}/${holidayFor(t)}`);
+      assert.deepEqual(second, first, "a moved wall clock must not change an explicit date");
+      assert.deepEqual(first, ["winter/christmas", "spring/easter", "autumn/null", "autumn/halloween"]);
+    } finally {
+      Date.now = real;
+    }
+  });
+
+  it("every season has a stylesheet block defining all 18 tokens", () => {
+    // 4a ships four season palettes and no holiday CSS. Holiday blocks get their
+    // own assertion when those dressings ship.
+    const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+    const tokens = [...new Set([...css.matchAll(/--color-[a-z0-9-]+(?=:)/g)].map((m) => m[0]))];
+    assert.equal(tokens.length, 18, `expected 18 colour tokens, found ${tokens.length}`);
+    for (const season of SEASONS) {
+      const block = css.match(new RegExp(`\\[data-season="${season}"\\] \\{([^}]*)\\}`));
+      assert.ok(block, `no CSS block for ${season}`);
+      for (const t of tokens) {
+        assert.ok(block![1]!.includes(`${t}:`), `${season} is missing ${t}`);
+      }
+    }
+  });
+
+  it("no season drops text or a dark find into an unreadable hole", () => {
+    // We shipped keep-1 / keep-2 at luminance ~50 on a sand plank. A rust autumn
+    // must not put them in the same hole, and cell text must stay readable.
+    const css = readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+    const hex = (s: string) => {
+      const m = s.match(/^#([0-9a-f]{6})$/i);
+      if (!m) return null;
+      const n = parseInt(m[1]!, 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255] as [number, number, number];
+    };
+    const lum = ([r, g, b]: [number, number, number]) => {
+      const f = (v: number) => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const ratio = (a: [number, number, number], b: [number, number, number]) => {
+      const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p) as [number, number];
+      return (x + 0.05) / (y + 0.05);
+    };
+    const DARK_FIND: [number, number, number] = [50, 50, 50]; // keep-1 / keep-2
+    for (const season of SEASONS) {
+      const block = css.match(new RegExp(`\\[data-season="${season}"\\] \\{([^}]*)\\}`))![1]!;
+      const get = (name: string) => {
+        const m = block.match(new RegExp(`${name}:\\s*(#[0-9a-f]{6})`, "i"));
+        return m ? hex(m[1]!) : null;
+      };
+      const cell = get("--color-cell")!;
+      const cellInk = get("--color-cell-ink")!;
+      const ink = get("--color-ink")!;
+      const sand = get("--color-sand")!;
+      assert.ok(ratio(cell, cellInk) >= 7, `${season}: cell vs cell-ink is ${ratio(cell, cellInk).toFixed(1)}:1`);
+      assert.ok(ratio(cell, ink) >= 7, `${season}: cell vs ink is ${ratio(cell, ink).toFixed(1)}:1`);
+      assert.ok(ratio(sand, DARK_FIND) >= 4.5, `${season}: a dark find on sand is ${ratio(sand, DARK_FIND).toFixed(1)}:1`);
+    }
+  });
+
+  it("seasons force no save migration", () => {
+    assert.equal(SAVE_VERSION, 9, "a costume derives from the clock and is never stored");
   });
 });

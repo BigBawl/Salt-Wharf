@@ -1045,6 +1045,94 @@ export function dayKey(now = Date.now()): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * Seasons and holidays. Both are pure functions of the clock, on the same
+ * injectable-now shape as dayKey, so a December costume is provable in September.
+ * Nothing here is stored: a player who opens the app on the 25th gets Christmas
+ * with no saved flag and no migration.
+ *
+ * v1 is the Canadian calendar in device-local time. Thanksgiving is the second
+ * Monday of October, not the American date, and a player in the southern
+ * hemisphere gets snow in July. Both are deliberate and both can move later.
+ */
+export type Season = "spring" | "summer" | "autumn" | "winter";
+export const SEASONS: readonly Season[] = ["spring", "summer", "autumn", "winter"];
+
+export type HolidayId =
+  | "newyear"
+  | "valentines"
+  | "easter"
+  | "canadaday"
+  | "thanksgiving"
+  | "halloween"
+  | "christmas";
+
+export function seasonFor(now = Date.now()): Season {
+  const m = new Date(now).getMonth();
+  if (m <= 1 || m === 11) return "winter";
+  if (m <= 4) return "spring";
+  if (m <= 7) return "summer";
+  return "autumn";
+}
+
+/** Anonymous Gregorian computus. Local Date of Easter Sunday. */
+export function easterSunday(year: number): Date {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(year, month - 1, day);
+}
+
+/** e.g. nthWeekday(2026, 9, 1, 2) is the 2nd Monday of October 2026. */
+export function nthWeekday(year: number, monthIndex: number, weekday: number, nth: number): Date {
+  const first = new Date(year, monthIndex, 1);
+  const shift = (weekday - first.getDay() + 7) % 7;
+  return new Date(year, monthIndex, 1 + shift + (nth - 1) * 7);
+}
+
+const DAY_MS = 86_400_000;
+
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/**
+ * Windows are whole local days, inclusive, so a costume never blinks out at noon.
+ * Order matters: the first match wins, and Christmas is checked before New Year
+ * so Dec 25 does not fall through to the Dec 31 rule.
+ */
+export function holidayFor(now = Date.now()): HolidayId | null {
+  const d = new Date(now);
+  const y = d.getFullYear();
+  const today = startOfDay(d);
+  const within = (date: Date, daysBefore = 0, daysAfter = 0) =>
+    today >= startOfDay(date) - daysBefore * DAY_MS &&
+    today <= startOfDay(date) + daysAfter * DAY_MS;
+
+  if (within(new Date(y, 11, 25), 7, 1)) return "christmas";
+  if (within(new Date(y, 11, 31), 0, 0)) return "newyear";
+  if (within(new Date(y, 0, 1), 0, 1)) return "newyear";
+  if (within(new Date(y, 9, 31), 6, 0)) return "halloween";
+  // Saturday through the Monday itself -- the Canadian long weekend.
+  if (within(nthWeekday(y, 9, 1, 2), 2, 0)) return "thanksgiving";
+  // Good Friday through Easter Monday.
+  if (within(easterSunday(y), 2, 1)) return "easter";
+  if (within(new Date(y, 1, 14), 1, 0)) return "valentines";
+  if (within(new Date(y, 6, 1), 0, 0)) return "canadaday";
+  return null;
+}
+
 export function emptyDaily(): DailyProgress {
   return { orders: 0, merges: 0, nodes: 0, claimed: false };
 }

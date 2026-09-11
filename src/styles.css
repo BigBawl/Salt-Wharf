@@ -33,6 +33,120 @@
   --shadow-panel: 0 14px 32px color-mix(in oklab, #2a6a80 16%, transparent);
 }
 
+/* ---------------------------------------------------------------------------
+   Seasons. The whole palette is 18 tokens defined in @theme above, and every
+   surface in the game derives from them, so redefining them here retints the
+   board, the cove, the chrome and the start screen together.
+
+   Attribute selectors, never class names: `.dock-summer`, `.dock-frost` and
+   `.dock-fest` are existing stage dock skins and a season called "summer" must
+   not collide with one. The stage skins keep working underneath -- season paints
+   the world, the skin still varies the board inside it.
+
+   These sit after @theme so source order wins; both selectors are one attribute
+   of specificity.
+   --------------------------------------------------------------------------- */
+
+[data-season="autumn"] {
+  --color-bg: #fdf4e7;
+  --color-bg-deep: #e3cfae;
+  --color-fog: #7d6b55;
+  --color-surface: #2b2318;
+  --color-surface-2: #efdfc3;
+  --color-ink: #2b2318;
+  --color-muted: #6d5c46;
+  --color-primary: #b5652f;
+  --color-primary-fg: #fff9f0;
+  --color-sand: #e7c187;
+  --color-wood: #cf9a5c;
+  --color-wood-deep: #a56f39;
+  --color-cell: #f7e7ca;
+  --color-cell-ink: #3a2d1e;
+  --color-energy: #7d9a35;
+  --color-pearl: #d09312;
+  --color-danger: #b53a32;
+  --color-ring: color-mix(in oklab, #b5652f 28%, transparent);
+}
+
+[data-season="winter"] {
+  --color-bg: #f5f9fc;
+  --color-bg-deep: #c9d9e6;
+  --color-fog: #79838d;
+  --color-surface: #1f2429;
+  --color-surface-2: #e3ebf2;
+  --color-ink: #1f2429;
+  --color-muted: #647079;
+  --color-primary: #3d80a6;
+  --color-primary-fg: #fbfdff;
+  --color-sand: #dde7ef;
+  --color-wood: #b7c3ce;
+  --color-wood-deep: #8f9daa;
+  --color-cell: #eef4f9;
+  --color-cell-ink: #2b333a;
+  --color-energy: #3fa38f;
+  --color-pearl: #9fb4c4;
+  --color-danger: #b24450;
+  --color-ring: color-mix(in oklab, #3d80a6 28%, transparent);
+}
+
+[data-season="spring"] {
+  --color-bg: #f8fcf3;
+  --color-bg-deep: #d5e9d6;
+  --color-fog: #6f7a68;
+  --color-surface: #232a22;
+  --color-surface-2: #e8f0e0;
+  --color-ink: #232a22;
+  --color-muted: #5e6a58;
+  --color-primary: #2f9c69;
+  --color-primary-fg: #fbfff8;
+  --color-sand: #e7e9c4;
+  --color-wood: #c6bf8c;
+  --color-wood-deep: #9d9862;
+  --color-cell: #f2f7e6;
+  --color-cell-ink: #2f352a;
+  --color-energy: #4bb955;
+  --color-pearl: #c9a927;
+  --color-danger: #c04a4a;
+  --color-ring: color-mix(in oklab, #2f9c69 28%, transparent);
+}
+
+[data-season="summer"] {
+  --color-bg: #fffbf0;
+  --color-bg-deep: #bde3f2;
+  --color-fog: #7f7663;
+  --color-surface: #2a2620;
+  --color-surface-2: #f1e8d6;
+  --color-ink: #2a2620;
+  --color-muted: #6e675c;
+  --color-primary: #0f9b98;
+  --color-primary-fg: #fffdf7;
+  --color-sand: #f7e2a6;
+  --color-wood: #e4b878;
+  --color-wood-deep: #cd9752;
+  --color-cell: #fbf1da;
+  --color-cell-ink: #3a322c;
+  --color-energy: #29c065;
+  --color-pearl: #dda817;
+  --color-danger: #c23b4c;
+  --color-ring: color-mix(in oklab, #0f9b98 28%, transparent);
+}
+
+/* The harbour photograph is one fixed daylight JPEG for all 120 stages. A filter
+   per season is the only thing that moves it, and it costs no artwork. */
+[data-season="autumn"] .town-layer {
+  filter: saturate(1.05) hue-rotate(-12deg) brightness(0.97);
+}
+[data-season="winter"] .town-layer {
+  filter: saturate(0.72) hue-rotate(14deg) brightness(1.06) contrast(0.96);
+}
+[data-season="spring"] .town-layer {
+  filter: saturate(1.08) hue-rotate(8deg) brightness(1.03);
+}
+[data-season="summer"] .town-layer {
+  filter: saturate(1.12) brightness(1.05);
+}
+
+
 @layer base {
   html {
     -webkit-font-smoothing: antialiased;
