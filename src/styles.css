@@ -133,6 +133,61 @@
 
 /* The harbour photograph is one fixed daylight JPEG for all 120 stages. A filter
    per season is the only thing that moves it, and it costs no artwork. */
+/* The 3D harbour is a canvas of 124 hardcoded colours that reads no CSS token, and
+   .harbor-stage paints a fixed #7eb8c9 sky behind it. Both sit above the board and
+   both were season-blind after 4a: a rust dock under a summer harbour. A filter on
+   the canvas tints the render without touching any of those 124 values, and the sky
+   gets a per-season background. The filter is on the canvas, not on
+   [data-harbor-world], so the decals layered over it are not tinted twice. */
+[data-season="autumn"] .harbor-stage { background: #b98a5a; }
+[data-season="winter"] .harbor-stage { background: #a9c2d4; }
+[data-season="spring"] .harbor-stage { background: #93c7b4; }
+[data-season="summer"] .harbor-stage { background: #7eb8c9; }
+
+[data-season="autumn"] .harbor-stage canvas { filter: saturate(1.04) hue-rotate(-14deg) brightness(0.96); }
+[data-season="winter"] .harbor-stage canvas { filter: saturate(0.68) hue-rotate(12deg) brightness(1.05); }
+[data-season="spring"] .harbor-stage canvas { filter: saturate(1.06) hue-rotate(10deg) brightness(1.02); }
+[data-season="summer"] .harbor-stage canvas { filter: saturate(1.1) brightness(1.04); }
+
+/* Season decals. Positioning only -- the image URL is set in React, because every
+   asset here goes through asset() for the /Salt-Wharf/ base and a url() in this
+   file would 404 on Pages. */
+.season-corner {
+  position: absolute;
+  top: 0;
+  width: 56px;
+  height: 56px;
+  z-index: 3;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+.season-corner-l {
+  left: 0;
+  background-position: top left;
+}
+.season-corner-r {
+  right: 0;
+  background-position: top right;
+}
+
+.season-cove {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: top center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .season-corner,
+  .season-cove {
+    transition: none;
+  }
+}
+
 [data-season="autumn"] .town-layer {
   filter: saturate(1.05) hue-rotate(-12deg) brightness(0.97);
 }

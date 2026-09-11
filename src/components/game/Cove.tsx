@@ -8,7 +8,7 @@ import {
   stageLine,
   stageName,
 } from "@/lib/game/catalog";
-import { COVE_NODES, canPayStep, siteArt } from "@/lib/game/loop";
+import { COVE_NODES, SEASON_DECALS, canPayStep, seasonFor, siteArt } from "@/lib/game/loop";
 import { useGame } from "@/lib/game/store";
 import { Button } from "@/components/ui/button";
 import { asset, cn } from "@/lib/utils";
@@ -18,6 +18,8 @@ export function TownColumn({ className, initialFocus }: { className?: string; in
   const coveNode = useGame((s) => s.coveNode);
   const gameStage = useGame((s) => s.stage);
   const taskIndex = useGame((s) => s.taskIndex);
+  useGame((s) => s.dailyDay);
+  const season = seasonFor();
   const [focus, setFocus] = useState(initialFocus ?? coveNode);
   useEffect(() => {
     setFocus(initialFocus ?? coveNode);
@@ -42,6 +44,13 @@ export function TownColumn({ className, initialFocus }: { className?: string; in
           crossOrigin="anonymous"
           style={{ opacity: lit }}
         />
+        {SEASON_DECALS[season]?.cove ? (
+          <span
+            aria-hidden
+            className="season-cove"
+            style={{ backgroundImage: `url(${asset(`/season/${season}-cove.png`)})` }}
+          />
+        ) : null}
         {COVE_NODES.map((n, i) => {
           const restored = i < coveNode;
           const current = i === coveNode;

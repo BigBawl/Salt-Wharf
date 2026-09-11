@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { useGame, flushSave } from "./store.ts";
 import { BOARD_SIZE, DELIVERIES_PER_STAGE, ITEMS, SAVE_KEY, SAVE_VERSION, piece } from "./catalog.ts";
-import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, planSpend, neededFromOrders, seasonFor, holidayFor, easterSunday, nthWeekday, SEASONS, type OrderCondition } from "./loop.ts";
+import { AUTO_CATCHUP_MAX, AUTO_TICK_MS, COVE_NODES, DRAW, GEN_CHARGES, GEN_CHARGES_L2, GEN_RECHARGE_L2_MS, GEN_RECHARGE_MS, INBOX_CAP, ORDER_SLOTS, STARTER_UNLOCKED, STORAGE_SIZE, UNLOCK_ORDER, canFillOrder, makeLiveOrder, maxCharges, mix, orderWindow, pityRoll, rechargeMs, seedOrders, shapePool, replaceOrder, takeFromPools, tierBand, CONDITION_BONUS, conditionMet, planSpend, neededFromOrders, seasonFor, holidayFor, easterSunday, nthWeekday, SEASONS, SEASON_DECALS, type OrderCondition } from "./loop.ts";
 import { CHAINS, itemWorth, baseItemId, nextItemId, prevItemId, type PlayChain } from "./catalog.ts";
 import { healSave, applyKeepScan, topicFromLegacy } from "./watch.ts";
 
@@ -1603,5 +1603,88 @@ describe("saltwharf seasons", () => {
 
   it("seasons force no save migration", () => {
     assert.equal(SAVE_VERSION, 9, "a costume derives from the clock and is never stored");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4c -- autumn decals, and the two surfaces 4a could not reach.
+//
+// 4a retinted everything that derives from the 18 colour tokens. The 3D harbour
+// does not: CoveIso is a canvas with 124 hardcoded colours and no CSS token, and
+// .harbor-stage paints a fixed sky behind it. Both sit above the board, so after
+// 4a a rust dock sat under a summer harbour. These tests pin the fix.
+// ---------------------------------------------------------------------------
+
+describe("saltwharf season decals", () => {
+  const css = () => readFileSync(resolve(process.cwd(), "src/styles.css"), "utf8");
+
+  it("every season tints the 3D harbour and its sky", () => {
+    const s = css();
+    for (const season of SEASONS) {
+      assert.ok(
+        new RegExp(`\\[data-season="${season}"\\] \\.harbor-stage \\{[^}]*background:`).test(s),
+        `${season} leaves the harbour sky on the hardcoded #7eb8c9`,
+      );
+      assert.ok(
+        new RegExp(`\\[data-season="${season}"\\] \\.harbor-stage canvas \\{[^}]*filter:`).test(s),
+        `${season} leaves the 3D harbour untinted`,
+      );
+    }
+  });
+
+  it("the harbour filter is on the canvas, not the decal wrapper", () => {
+    // Filtering [data-harbor-world] would tint the decals layered over it a second
+    // time -- autumn leaves through an autumn filter.
+    const s = css();
+    assert.ok(!/\[data-season="[a-z]+"\] \[data-harbor-world\] \{[^}]*filter:/.test(s),
+      "tint the canvas, not the wrapper");
+  });
+
+  it("every declared decal has a file on disk", () => {
+    for (const [season, slots] of Object.entries(SEASON_DECALS)) {
+      const want: string[] = [];
+      if (slots?.corners) want.push(`${season}-corner-l.png`, `${season}-corner-r.png`);
+      if (slots?.cove) want.push(`${season}-cove.png`);
+      for (const f of want) {
+        assert.ok(
+          existsSync(resolve(process.cwd(), "public/season", f)),
+          `SEASON_DECALS declares ${season} but public/season/${f} is missing`,
+        );
+      }
+    }
+  });
+
+  it("no stylesheet rule points at a public asset", () => {
+    // Everything here is served from /Salt-Wharf/ on Pages. A bare url(/season/...)
+    // in CSS resolves to the domain root and 404s in production; asset() exists for
+    // exactly this reason, so decal URLs are built in React.
+    const s = css();
+    // Bracket class, not a backslash escape: the project's corruption sweep greps
+    // for an escaped paren, and writing one here would set that tripwire off for
+    // nothing. A false alarm on that check is worse than no check.
+    const bare = s.match(/url[(]\s*[/](?![/])/g) ?? [];
+    assert.equal(bare.length, 0, `${bare.length} stylesheet rule(s) bypass asset()`);
+  });
+
+  it("decals never swallow a tap", () => {
+    const s = css();
+    for (const cls of [".season-corner", ".season-cove"]) {
+      const block = s.match(new RegExp(`\\${cls} \\{([^}]*)\\}`));
+      assert.ok(block, `${cls} has no rule`);
+      assert.ok(block![1]!.includes("pointer-events: none"), `${cls} must not take pointer events`);
+    }
+  });
+
+  it("art in public/ forces a CACHE bump", () => {
+    // Phase 1's rule: anything under public/ needs a new cache name or players keep
+    // the old files. This patch ships three PNGs.
+    const sw = readFileSync(resolve(process.cwd(), "public/sw.js"), "utf8");
+    const m = sw.match(/const CACHE = "saltwharf-v(\d+)"/);
+    assert.ok(m, "sw.js has no CACHE name");
+    assert.ok(Number(m![1]) >= 9, `CACHE is v${m![1]}, but this patch adds files under public/`);
+  });
+
+  it("decals force no save migration", () => {
+    assert.equal(SAVE_VERSION, 9);
   });
 });
